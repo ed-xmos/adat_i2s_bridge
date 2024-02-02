@@ -45,7 +45,6 @@ on tile[1]: clock bclk =                                    XS1_CLKBLK_1;
 
 #define ADAT_MAX_SAMPLES        8
 typedef struct adat_state_t{
-    uint32_t sample_period_count;
     int32_t samples[8];
     int32_t rx_time_latest;
     int32_t rx_time_last;
@@ -84,7 +83,9 @@ typedef struct asrc_input_t{
 typedef struct asrc_output_t{
     int32_t samples[SRC_MAX_NUM_SAMPS_OUT][ADAT_MAX_SAMPLES];
     uint32_t num_samples;
+    uint32_t smux_setting;
 }asrc_output_t;
+
 
 #define RATE_LOWER(rate, ppm) ((uint32_t)((float)rate * (1.0 - (float)ppm / 1e6) + 0.5))
 #define RATE_HIGHER(rate, ppm) ((uint32_t)((float)rate * (1.0 + (float)ppm / 1e6)+ 0.5))
@@ -105,7 +106,134 @@ inline uint32_t get_normal_sample_rate(uint32_t samples_per_second){
 }
 
 
-void audio_hub( chanend c_adat_rx,
+void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux)
+{
+    unsigned word = 0;
+    adat_state_t adat_state[2] = {{{0}}};
+    uint32_t adat_state_idx = 0;
+    uint32_t adat_group_idx = 0;
+    uint32_t smux_setting = 1;
+    uint32_t new_smux_setting = smux_setting;
+
+    timer tmr;
+    int32_t rate_measurement_trigger = 0;
+    const uint32_t measurement_rate_hz = 10;
+    const int32_t rate_measurement_period = XS1_TIMER_HZ / measurement_rate_hz;
+    uint32_t measured_adat_rate = 0;
+    uint32_t sample_period_count = 0;
+
+    tmr :> rate_measurement_trigger;
+    rate_measurement_trigger += rate_measurement_period;
+
+ 
+    while(1)
+    {
+        select
+        {
+            case inuint_byref(c_adat_rx, word):
+                // grab timestamp first for minimum jitter
+                uint32_t time_stamp;
+                tmr :> time_stamp;
+                uint8_t other_buff_idx = adat_state_idx ^ 1;
+                if(word & 0x01){
+                    adat_state[adat_state_idx].rx_time_last = adat_state[other_buff_idx].rx_time_latest;
+                    adat_state[adat_state_idx].rx_time_latest = time_stamp;
+                    adat_state[adat_state_idx].channel = 0;
+                    adat_state[adat_state_idx].user_bits = word >> 4;
+                } else {
+                    adat_state[adat_state_idx].samples[adat_state[adat_state_idx].channel] = word << 4;
+                    adat_state[adat_state_idx].channel++;
+
+                    switch(smux_setting){
+                        case 1:
+                            if(adat_state[adat_state_idx].channel == 8){
+                                outuint(c_adat_rx_demux, measured_adat_rate);
+                                outuint(c_adat_rx_demux, 8);
+                                outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[0]);
+                                outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[1]);
+                                outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[2]);
+                                outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[3]);
+                                outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[4]);
+                                outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[5]);
+                                outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[6]);
+                                outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[7]);
+                                new_smux_setting = inuint(c_adat_rx_demux);
+                                outct(c_adat_rx_demux, XS1_CT_END);
+                                chkct(c_adat_rx_demux, XS1_CT_END);
+                                adat_state[adat_state_idx].channel = 0;
+                                adat_state_idx ^= 1;
+                                smux_setting = new_smux_setting;
+                                sample_period_count++;
+                            }
+                        break;
+
+                        case 2:
+                            if(adat_state[adat_state_idx].channel == 4){
+                                outuint(c_adat_rx_demux, measured_adat_rate);
+                                if(adat_group_idx == 0){
+                                    outuint(c_adat_rx_demux, 4);
+                                    outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[0]);
+                                    outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[2]);
+                                    outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[4]);
+                                    outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[6]);
+                                } else {
+                                    outuint(c_adat_rx_demux, 4);
+                                    outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[1]);
+                                    outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[3]);
+                                    outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[5]);
+                                    outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[7]);
+                                }
+                                new_smux_setting = inuint(c_adat_rx_demux);
+                                outct(c_adat_rx_demux, XS1_CT_END);
+                                chkct(c_adat_rx_demux, XS1_CT_END);
+                                adat_state[adat_state_idx].channel = 0;
+                                sample_period_count++;
+                                adat_group_idx++;
+                                if(adat_group_idx == 2){
+                                    adat_group_idx = 0;
+                                    adat_state_idx ^= 1;
+                                    smux_setting = new_smux_setting;
+                                }
+                            }
+                        break;
+
+                        case 4:
+                            if(adat_state[adat_state_idx].channel == 2){
+                                outuint(c_adat_rx_demux, measured_adat_rate);
+                                outuint(c_adat_rx_demux, 2);
+                                unsigned offset = adat_group_idx * 2;
+                                outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[offset + 0]);
+                                outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[offset + 1]);
+                                new_smux_setting = inuint(c_adat_rx_demux);
+                                outct(c_adat_rx_demux, XS1_CT_END);
+                                chkct(c_adat_rx_demux, XS1_CT_END);
+                                adat_state[adat_state_idx].channel = 0;
+                                sample_period_count++;
+                                adat_group_idx++;
+                                if(adat_group_idx == 4){
+                                    adat_group_idx = 0;
+                                    adat_state_idx ^= 1;
+                                    smux_setting = new_smux_setting;
+                                }
+                            }
+                        break; 
+                    }
+                }
+            break;
+
+            case tmr when timerafter(rate_measurement_trigger) :> int _:
+                // Measure ADAT
+                uint32_t samples_per_second = sample_period_count * measurement_rate_hz;
+                measured_adat_rate = get_normal_sample_rate(samples_per_second);
+                sample_period_count = 0;
+                rate_measurement_trigger += rate_measurement_period;
+            break;
+
+        } // select
+    } // while
+}
+
+void audio_hub( chanend c_adat_rx_demux,
                 chanend c_adat_tx,
                 server i2s_frame_callback_if i_i2s,
                 streaming chanend c_asrc,
@@ -119,10 +247,6 @@ void audio_hub( chanend c_adat_rx,
     tmr :> rate_measurement_trigger;
     rate_measurement_trigger += rate_measurement_period;
 
-    // ADAT Rx state
-    unsigned word = 0;
-    adat_state_t adat_state = {0};
-
     // ASRC local buffers
     asrc_input_t asrc_input = {{{0}}};
     unsigned asrc_input_frame_idx = 0;
@@ -134,51 +258,24 @@ void audio_hub( chanend c_adat_rx,
     uint32_t i2s_set_sample_rate = 48000;
     uint8_t i2s_master_sample_rate_change = 1; // Force config first time around
 
-    // sample rate measurement state
+    // i2s sample rate measurement state
     uint32_t i2s_sample_period_count = 0;
     uint32_t current_i2s_rate = 0;                  // Set to invalid
     uint8_t measured_i2s_sample_rate_change = 1;    // Force new SR as measured
+
+    // demuxed ADAT Rx
+    uint32_t rx_smux_setting = 1;
+    int32_t adat_rx_samples[8] = {0};
+    uint32_t adat_rx_rate = 0;
+    unsigned word = 0;
 
     uint8_t mute = 1;
 
     while(1) {
         select{
-            case inuint_byref(c_adat_rx, word):
-                // grab timestamp first for minimum jitter
-                uint32_t time_stamp;
-                tmr :> time_stamp;
-                if(word & 0x01){
-                    adat_state.rx_time_last = adat_state.rx_time_latest;
-                    adat_state.rx_time_latest = time_stamp;
-                    adat_state.channel = 0;
-                    adat_state.sample_period_count++;
-                } else {
-                    adat_state.samples[adat_state.channel] = word << 4;
-                    adat_state.channel++;
-                    if (adat_state.channel == 8){
-                        memcpy(asrc_input.samples[asrc_input_frame_idx], adat_state.samples, sizeof(adat_state.samples));
-                        adat_state.channel = 0;
-                        asrc_input_frame_idx++;
-                        if(asrc_input_frame_idx == ASRC_N_IN_SAMPLES){
-                            asrc_input_frame_idx = 0;
-                            c_asrc :> asrc_output; // Receive from ASRC first so we don't block
-                            c_asrc <: asrc_input;
-                            asrc_output_frame_idx = 0;
-                        }
-                        // printchar('a');
-                    }
-                }
-            break;
-
             case tmr when timerafter(rate_measurement_trigger) :> int _:
-                // Measure ADAT
-                uint32_t samples_per_second = adat_state.sample_period_count * measurement_rate_hz;
-                uint32_t measured_adat_rate = get_normal_sample_rate(samples_per_second);
-                adat_state.sample_period_count = 0;
-                // printintln(measured_adat_rate);
-
                 // Measure I2S
-                samples_per_second = i2s_sample_period_count * measurement_rate_hz;
+                unsigned samples_per_second = i2s_sample_period_count * measurement_rate_hz;
                 unsigned measured_i2s_rate = get_normal_sample_rate(samples_per_second);
                 i2s_sample_period_count = 0;
                 if((measured_i2s_rate != 0) && (current_i2s_rate != measured_i2s_rate)){
@@ -186,20 +283,32 @@ void audio_hub( chanend c_adat_rx,
                     measured_i2s_sample_rate_change = 1;
                     current_i2s_rate = measured_i2s_rate;
                     asrc_input.nominal_output_rate = measured_i2s_rate;
-                    printstrln("Measured I2S sample rate change");
+                    printstrln("Measured I2S sample rate change: "); printintln(measured_i2s_rate);
                     // AudioHwConfig(measured_i2s_rate, master_clock_frequency, 0, 24, 24);
-                    printintln(measured_i2s_rate);
                 }
-                // printintln(samples_per_second);
-                // printintln(nominal_sample_rate);
 
                 rate_measurement_trigger += rate_measurement_period;
             break;
 
+            case inuint_byref(c_adat_rx_demux, word):
+                unsigned new_adat_rx_rate = word;
+                outuint(c_adat_rx_demux, rx_smux_setting);
+                unsigned adat_rx_channels = inuint(c_adat_rx_demux);
+                for(unsigned ch = 0; ch < adat_rx_channels; ch++){
+                    adat_rx_samples[ch] = inuint(c_adat_rx_demux);
+                }
+                outct(c_adat_rx_demux, XS1_CT_END);
+                chkct(c_adat_rx_demux, XS1_CT_END);
+
+                if(new_adat_rx_rate != adat_rx_rate){
+                    printstr("ADAT Rx sample rate change: "); printintln(new_adat_rx_rate);
+                    adat_rx_rate = new_adat_rx_rate;
+                }
+            break;
+
             case i_i2s.init(i2s_config_t &?i2s_config, tdm_config_t &?tdm_config):
                 i2s_config.mclk_bclk_ratio = (master_clock_frequency / (i2s_set_sample_rate*2*I2S_DATA_BITS));
-                printstrln("i2s init");
-                printintln(i2s_set_sample_rate);
+                printstr("i2s init: "); printintln(i2s_set_sample_rate);
                 AudioHwConfig(i2s_set_sample_rate, master_clock_frequency, 0, 24, 24);
                 i2s_config.mode = I2S_MODE_I2S;
                 mute = 0;
@@ -234,10 +343,13 @@ void audio_hub( chanend c_adat_rx,
                     samples[0] = 0;
                     samples[1] = 0;
                 }
-                samples[0] = asrc_output.samples[asrc_output_frame_idx][0];
-                samples[1] = asrc_output.samples[asrc_output_frame_idx][1];
+                // samples[0] = asrc_output.samples[asrc_output_frame_idx][0];
+                // samples[1] = asrc_output.samples[asrc_output_frame_idx][1];
                 // samples[0] = asrc_input.samples[asrc_input_frame_idx][0];
                 // samples[1] = asrc_input.samples[asrc_input_frame_idx][1];
+                samples[0] = adat_rx_samples[0];
+                samples[1] = adat_rx_samples[1];
+
                 asrc_output_frame_idx++;
                 if(asrc_output_frame_idx >= asrc_output.num_samples){
                     asrc_output_frame_idx = 0;
@@ -258,14 +370,13 @@ void audio_hub( chanend c_adat_rx,
                 if(id == IO_ADAT_RX){
                     unsigned new_smux;
                     c_sr_change :> new_smux;
-
-                    printintln(new_smux);
+                    rx_smux_setting = new_smux;
+                    printstr("adat rx smux: ");printintln(new_smux);
                 }
                 if(id == IO_ADAT_TX){
                     unsigned new_smux;
                     c_sr_change :> new_smux;
-
-                    printintln(new_smux);
+                    printstr("adat tx smux: ");printintln(new_smux);
                 }
             break;
         } // select
@@ -469,6 +580,7 @@ void gpio(chanend c_sr_change, in port p_buttons, out port p_leds){
 
 int main(void) {
     chan c_adat_rx;
+    chan c_adat_rx_demux;
     chan c_adat_tx;
     i2s_frame_callback_if i_i2s;
     streaming chan c_asrc;
@@ -493,7 +605,8 @@ int main(void) {
             audio_hw_setup();
             adat_tx_setup_task(c_adat_tx, p_adat_out);
             par {
-                audio_hub(c_adat_rx, c_adat_tx, i_i2s, c_asrc, c_sr_change);
+                adat_rx_demux(c_adat_rx, c_adat_rx_demux);
+                audio_hub(c_adat_rx_demux, c_adat_tx, i_i2s, c_asrc, c_sr_change);
                 adat_tx_port(c_adat_tx, p_adat_out);
                 i2s_frame_master(i_i2s, p_dac, NUM_I2S_DAC_LINES, p_adc, NUM_I2S_ADC_LINES, I2S_DATA_BITS, p_bclk, p_lrclk, p_mclk, bclk);
             }
