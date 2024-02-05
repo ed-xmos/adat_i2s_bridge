@@ -93,7 +93,7 @@ void do_asrc_group(schedule_info_t *schedule, uint64_t fs_ratio, void *args, int
     // for(int i = 0; i < *num_output_samples; i++){
     //     asrc_io->output_samples[i] = asrc_io->input_samples[i];
     // }
-    *num_output_samples = asrc_process(asrc_io->input_samples,  asrc_io->output_samples, fs_ratio, asrc_state);
+    *num_output_samples = asrc_process((int*)asrc_io->input_samples, (int*)asrc_io->output_samples, fs_ratio, asrc_state);
     // *num_output_samples = 4;
     // putchar('a');
     // printf("fs_ratio: %f\n", (float)fs_ratio / (float)(1ULL<<60));
@@ -167,12 +167,10 @@ int par_asrc(int num_jobs, schedule_info_t schedule[], uint64_t fs_ratio, void *
 int64_t array[ASYNCHRONOUS_FIFO_INT64_ELEMENTS(FIFO_LENGTH, 1)];
 asynchronous_fifo_t *fifo = (asynchronous_fifo_t *)array;
 
-volatile int asrc_ready = 0;
 
 void pull_samples(int32_t *samples, int32_t consume_timestamp){
     asynchronous_fifo_consume(fifo, samples, consume_timestamp);
     // printf("pull @ %ld\n", consume_timestamp);
-    asrc_ready = 1;
 }
 
 
@@ -251,16 +249,13 @@ void asrc_processor(chanend_t c_adat_rx_demux){
                 asrc_in_counter = 0;
                 int num_output_samples = par_asrc(num_jobs, schedule, fs_ratio, &asrc_io, sASRCCtrl);
                 int ts = asrc_timestamp_interpolation(asrc_io.input_timestamp, sASRCCtrl, interpolation_ticks);
+                int error = asynchronous_fifo_produce(fifo, asrc_io.output_samples, num_output_samples, ts, xscope_used);
+                // printf("push @ %d\n", asrc_io.input_timestamp);
+                fs_ratio = (((int64_t)ideal_fs_ratio) << 32) + (error * (int64_t) ideal_fs_ratio);
+                // printintln(error);
+                printf("depth: %lu\n", (fifo->write_ptr - fifo->read_ptr + fifo->max_fifo_depth) % fifo->max_fifo_depth);
+                // printf("ratio: %llu\n", fs_ratio);
 
-                int error = 0;
-                if(asrc_ready){
-                    error = asynchronous_fifo_produce(fifo, asrc_io.output_samples, num_output_samples, ts, xscope_used);
-                    // printf("push @ %d\n", asrc_io.input_timestamp);
-                    fs_ratio = (((int64_t)ideal_fs_ratio) << 32) + (error * (int64_t) ideal_fs_ratio);
-                    // printintln(error);
-                    printf("depth: %lu\n", (fifo->write_ptr - fifo->read_ptr + fifo->max_fifo_depth) % fifo->max_fifo_depth);
-
-                }
             }
 
             if(new_adat_rx_rate != adat_rx_rate){

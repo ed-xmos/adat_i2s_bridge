@@ -11,8 +11,6 @@
 #include "adat_tx.h"
 #include "adat_tx.h"
 
-#define DIRECT_ADAT_RX  0
-
 extern void board_setup(void);
 extern void AudioHwInit(void);
 extern void AudioHwConfig(unsigned samFreq, unsigned mClk, unsigned dsdMode, unsigned sampRes_DAC, unsigned sampRes_ADC);
@@ -32,19 +30,19 @@ on tile[0]: in port p_buttons =                             XS1_PORT_4E;
 on tile[0]: out port p_leds =                               XS1_PORT_4F;
 
 // I2S resources
-#define NUM_I2S_DAC_LINES                                   1
+#define NUM_I2S_DAC_LINES                                   2
 #define NUM_I2S_ADC_LINES                                   1
 #define I2S_DATA_BITS                                       32
 on tile[1]: in port p_mclk =                                PORT_MCLK_IN;
 on tile[1]: buffered out port:32 p_lrclk =                  PORT_I2S_LRCLK;
 on tile[1]: out port p_bclk =                               PORT_I2S_BCLK;
-on tile[1]: buffered out port:32 p_dac[NUM_I2S_DAC_LINES] = {PORT_I2S_DAC0};
-on tile[1]: buffered in port:32 p_adc[NUM_I2S_DAC_LINES] =  {PORT_I2S_ADC0};
+on tile[1]: buffered out port:32 p_dac[NUM_I2S_DAC_LINES] = {PORT_I2S_DAC0, PORT_I2S_DAC1};
+on tile[1]: buffered in port:32 p_adc[NUM_I2S_ADC_LINES] =  {PORT_I2S_ADC0};
 on tile[1]: clock bclk =                                    XS1_CLKBLK_1;
 
 #define ADAT_MAX_SAMPLES        8
 typedef struct adat_state_t{
-    int32_t samples[8];
+    int32_t samples[ADAT_MAX_SAMPLES];
     int32_t rx_time_latest;
     int32_t rx_time_last;
     uint8_t user_bits;
@@ -113,10 +111,6 @@ void audio_hub( chanend c_adat_tx,
 
     uint8_t mute = 1;
 
-    int32_t adat_rx_samples[8] = {0};
-
-    unsigned word = 0;
-
     while(1) {
         select{
             case tmr when timerafter(rate_measurement_trigger) :> int _:
@@ -165,24 +159,6 @@ void audio_hub( chanend c_adat_tx,
                 // Handle a received sample
             break;
 
-#if DIRECT_ADAT_RX
-            case inuint_byref(c_adat_rx_demux, word):
-                unsigned new_adat_rx_rate = word;
-                unsigned adat_rx_channels = inuint(c_adat_rx_demux);
-                for(unsigned ch = 0; ch < adat_rx_channels; ch++){
-                    adat_rx_samples[ch] = inuint(c_adat_rx_demux);
-                }
-                // chkct(c_adat_rx_demux, XS1_CT_END);
-                // outct(c_adat_rx_demux, XS1_CT_END);
-
-                unsigned adat_rx_rate = new_adat_rx_rate;
-                if(new_adat_rx_rate != adat_rx_rate){
-                    printstr("ADAT Rx sample rate change: "); printintln(new_adat_rx_rate);
-                    adat_rx_rate = new_adat_rx_rate;
-                }
-            break;
-#endif
-
             case i_i2s.send(size_t num_out, int32_t samples[num_out]):
                 int32_t consume_timestamp;
                 tmr :> consume_timestamp;
@@ -192,6 +168,8 @@ void audio_hub( chanend c_adat_tx,
                 pull_samples(&asrc_out, consume_timestamp);
                 samples[0] = asrc_out;
                 samples[1] = 0;
+                samples[2] = asrc_out;
+                samples[3] = 0;
             break;
 
             case c_sr_change :> unsigned id:
@@ -466,8 +444,6 @@ int main(void) {
     chan c_smux_change_adat_rx;
     interface i2c_master_if i2c[1];
 
-    chan dummy;
-
     par {
         on tile[0]: {
             board_setup();
@@ -490,18 +466,10 @@ int main(void) {
             adat_tx_setup_task(c_adat_tx, p_adat_out);
 
             par {
-                audio_hub(c_adat_tx, i_i2s, c_sr_change_i2s
-#if DIRECT_ADAT_RX
-                        ,c_adat_rx_demux
-#endif
-                );
+                audio_hub(c_adat_tx, i_i2s, c_sr_change_i2s);
                 adat_tx_port(c_adat_tx, p_adat_out);
                 i2s_frame_master(i_i2s, p_dac, NUM_I2S_DAC_LINES, p_adc, NUM_I2S_ADC_LINES, I2S_DATA_BITS, p_bclk, p_lrclk, p_mclk, bclk);
-#if DIRECT_ADAT_RX
-                asrc_processor(dummy);
-#else
                 asrc_processor(c_adat_rx_demux);
-#endif
             }
         }
     }
