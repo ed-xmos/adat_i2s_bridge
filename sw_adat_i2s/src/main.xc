@@ -11,7 +11,7 @@
 #include "adat_tx.h"
 #include "adat_tx.h"
 
-#define DIRECT_ADAT_RX 1
+#define DIRECT_ADAT_RX  0
 
 extern void board_setup(void);
 extern void AudioHwInit(void);
@@ -64,19 +64,6 @@ enum adat_smux_setting{
 };
 
 
-// typedef struct asrc_input_t{
-//     int32_t samples[ASRC_N_IN_SAMPLES][ADAT_MAX_SAMPLES];
-//     unsigned nominal_input_rate;
-//     unsigned nominal_output_rate;
-//     int32_t time_stamp;
-// }asrc_input_t;
-
-// typedef struct asrc_output_t{
-//     int32_t samples[SRC_MAX_NUM_SAMPS_OUT][ADAT_MAX_SAMPLES];
-//     uint32_t num_samples;
-//     uint32_t smux_setting;
-// }asrc_output_t;
-
 
 #define RATE_LOWER(rate, ppm) ((uint32_t)((float)rate * (1.0 - (float)ppm / 1e6) + 0.5))
 #define RATE_HIGHER(rate, ppm) ((uint32_t)((float)rate * (1.0 + (float)ppm / 1e6)+ 0.5))
@@ -96,7 +83,9 @@ inline uint32_t get_normal_sample_rate(uint32_t samples_per_second){
     return 0; // Invalid rate found
 }
 
-#if 1
+// in asrc_task.c
+extern "C" {void pull_samples(int32_t *samples, int32_t consume_timestamp);}
+
 void audio_hub( chanend c_adat_tx,
                 server i2s_frame_callback_if i_i2s,
                 chanend c_sr_change
@@ -142,7 +131,6 @@ void audio_hub( chanend c_adat_tx,
                     // asrc_input.nominal_output_rate = measured_i2s_rate;
                     printstrln("Measured I2S sample rate change: "); printintln(measured_i2s_rate);
                 }
-
                 rate_measurement_trigger += rate_measurement_period;
             break;
 
@@ -196,8 +184,14 @@ void audio_hub( chanend c_adat_tx,
 #endif
 
             case i_i2s.send(size_t num_out, int32_t samples[num_out]):
-                samples[0] = adat_rx_samples[0];
-                samples[1] = adat_rx_samples[1];
+                int32_t consume_timestamp;
+                tmr :> consume_timestamp;
+                // samples[0] = adat_rx_samples[0];
+                // samples[1] = adat_rx_samples[1];
+                int32_t asrc_out;
+                pull_samples(&asrc_out, consume_timestamp);
+                samples[0] = asrc_out;
+                samples[1] = 0;
             break;
 
             case c_sr_change :> unsigned id:
@@ -220,14 +214,7 @@ void audio_hub( chanend c_adat_tx,
         } // select
     }// while(1)
 }
-#else
-void audio_hub( 
-                chanend c_adat_tx
-                ,server i2s_frame_callback_if i_i2s
-                ,chanend c_sr_change
-                ,chanend c_adat_rx_demux
-                ){}
-#endif
+
 
 void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_change_adat_rx)
 {
@@ -504,14 +491,17 @@ int main(void) {
 
             par {
                 audio_hub(c_adat_tx, i_i2s, c_sr_change_i2s
-                #if DIRECT_ADAT_RX
+#if DIRECT_ADAT_RX
                         ,c_adat_rx_demux
-                #endif
+#endif
                 );
                 adat_tx_port(c_adat_tx, p_adat_out);
                 i2s_frame_master(i_i2s, p_dac, NUM_I2S_DAC_LINES, p_adc, NUM_I2S_ADC_LINES, I2S_DATA_BITS, p_bclk, p_lrclk, p_mclk, bclk);
+#if DIRECT_ADAT_RX
                 asrc_processor(dummy);
-
+#else
+                asrc_processor(c_adat_rx_demux);
+#endif
             }
         }
     }
