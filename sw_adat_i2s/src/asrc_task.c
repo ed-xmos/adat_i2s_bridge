@@ -89,10 +89,6 @@ DECLARE_JOB(do_asrc_group, (schedule_info_t*, uint64_t, void*, int*, void*));
 void do_asrc_group(schedule_info_t *schedule, uint64_t fs_ratio, void *args, int* num_output_samples, void * asrc_state){
     // printf("do_asrc_groupstart_idx: %u n_channels: %u\n", schedule->channel_start_idx, schedule->num_channels);
     asrc_in_out_t *asrc_io = args;
-    // *num_output_samples = 4;
-    // for(int i = 0; i < *num_output_samples; i++){
-    //     asrc_io->output_samples[i] = asrc_io->input_samples[i];
-    // }
     *num_output_samples = asrc_process((int*)asrc_io->input_samples, (int*)asrc_io->output_samples, fs_ratio, asrc_state);
     // *num_output_samples = 4;
     // putchar('a');
@@ -173,14 +169,13 @@ void pull_samples(int32_t *samples, int32_t consume_timestamp){
     // printf("pull @ %ld\n", consume_timestamp);
 }
 
-
+extern uint32_t current_i2s_rate;
 
 void asrc_processor(chanend_t c_adat_rx_demux){
     uint32_t input_frequency = 48000;
     uint32_t output_frequency = 48000;
 
     int channels = 1;
-    int audio_format_change = 0;
 
     static int interpolation_ticks_2D[6][6] = {
         {  2268, 2268, 2268, 2268, 2268, 2268},
@@ -193,6 +188,8 @@ void asrc_processor(chanend_t c_adat_rx_demux){
     
 
     while(1){
+        int audio_format_change = 0;
+
         asrc_in_out_t asrc_io = {0};
 
         int inputFsCode = fs_code(input_frequency);
@@ -206,7 +203,6 @@ void asrc_processor(chanend_t c_adat_rx_demux){
 
         // demuxed ADAT Rx
         int32_t adat_rx_samples[8] = {0};
-        uint32_t adat_rx_rate = 0;
 
         // SCHEDULER
         schedule_info_t schedule[max_asrc_threads];
@@ -253,15 +249,28 @@ void asrc_processor(chanend_t c_adat_rx_demux){
                 // printf("push @ %d\n", asrc_io.input_timestamp);
                 fs_ratio = (((int64_t)ideal_fs_ratio) << 32) + (error * (int64_t) ideal_fs_ratio);
                 // printintln(error);
-                printf("depth: %lu\n", (fifo->write_ptr - fifo->read_ptr + fifo->max_fifo_depth) % fifo->max_fifo_depth);
+                static int print_counter = 0;
+                if(++print_counter == 10000){
+                    printf("depth: %lu\n", (fifo->write_ptr - fifo->read_ptr + fifo->max_fifo_depth) % fifo->max_fifo_depth);
+                    print_counter = 0;
+                }
                 // printf("ratio: %llu\n", fs_ratio);
 
             }
 
-            if(new_adat_rx_rate != adat_rx_rate){
+            if(new_adat_rx_rate != input_frequency){
                 printf("ADAT Rx sample rate change: %u", new_adat_rx_rate);
-                adat_rx_rate = new_adat_rx_rate;
-                // audio_format_change = 1;
+                if(new_adat_rx_rate != 0){
+                    input_frequency = new_adat_rx_rate;
+                    audio_format_change = 1;
+                }
+            }
+
+            if(current_i2s_rate != output_frequency){
+                if(current_i2s_rate != 0){
+                    output_frequency = current_i2s_rate;
+                    audio_format_change = 1;
+                }
             }
         }
     }

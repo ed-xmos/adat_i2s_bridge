@@ -84,6 +84,10 @@ inline uint32_t get_normal_sample_rate(uint32_t samples_per_second){
 // in asrc_task.c
 extern "C" {void pull_samples(int32_t *samples, int32_t consume_timestamp);}
 
+// Global to allow asrc_task to poll it
+uint32_t current_i2s_rate = 0;                  // Set to invalid
+
+
 void audio_hub( chanend c_adat_tx,
                 server i2s_frame_callback_if i_i2s,
                 chanend c_sr_change
@@ -106,7 +110,6 @@ void audio_hub( chanend c_adat_tx,
 
     // i2s sample rate measurement state
     uint32_t i2s_sample_period_count = 0;
-    uint32_t current_i2s_rate = 0;                  // Set to invalid
     uint8_t measured_i2s_sample_rate_change = 1;    // Force new SR as measured
 
     uint8_t mute = 1;
@@ -459,10 +462,8 @@ int main(void) {
             unsafe{
                 i_i2c_client = i2c[0];
             }
-            delay_milliseconds(100);
-            printstrln("pre");
+            delay_milliseconds(100); // Wait for board_setup() to complete
             audio_hw_setup();
-            printstrln("post");
             adat_tx_setup_task(c_adat_tx, p_adat_out);
 
             par {
