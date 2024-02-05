@@ -261,7 +261,9 @@ void AudioHwInit()
     unsafe
     {
         while(!(unsigned) i_i2c_client);
+        printhexln((unsigned) i_i2c_client);
     }
+
 
     if(USE_FRACTIONAL_N)
     {
