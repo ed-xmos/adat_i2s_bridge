@@ -8,11 +8,13 @@
 #include "asynchronous_fifo.h"
 #include "asrc_timestamp_interpolation.h"
 
-const int max_asrc_threads = 4;
-const unsigned max_asrc_channels = 8;
+#include "app_config.h"
+
+const int max_asrc_threads = 1;
+const unsigned max_asrc_channels = 2;
 
 
-#define     SRC_N_CHANNELS                  (1)   // Total number of audio channels to be processed by SRC (minimum 1)
+#define     SRC_N_CHANNELS                  (2)   // Total number of audio channels to be processed by SRC (minimum 1)
 #define     SRC_N_INSTANCES                 (1)   // Number of instances (each usually run a logical core) used to process audio (minimum 1)
 #define     SRC_CHANNELS_PER_INSTANCE       (SRC_N_CHANNELS/SRC_N_INSTANCES) // Calculated number of audio channels processed by each core
 #define     SRC_N_IN_SAMPLES                (4)   // Number of samples per channel in each block passed into SRC each call
@@ -77,9 +79,9 @@ int calculate_job_share(const int max_asrc_threads,
 typedef struct asrc_in_out_t{
     unsigned nominal_input_rate;
     unsigned nominal_output_rate;
-    int32_t input_samples[ASRC_N_IN_SAMPLES];
+    int32_t input_samples[ASRC_N_IN_SAMPLES][SRC_N_CHANNELS];
     int32_t input_timestamp;
-    int32_t output_samples[SRC_MAX_NUM_SAMPS_OUT];
+    int32_t output_samples[SRC_MAX_NUM_SAMPS_OUT][SRC_N_CHANNELS];
     uint32_t num_output_samples;
     int32_t output_time_stamp;
 }asrc_in_out_t;
@@ -176,7 +178,7 @@ void asrc_processor(chanend_t c_adat_rx_demux){
     uint32_t input_frequency = 48000;
     uint32_t output_frequency = 48000;
 
-    int channels = 1;
+    int channels = 2;
 
     static int interpolation_ticks_2D[6][6] = {
         {  2268, 2268, 2268, 2268, 2268, 2268},
@@ -193,10 +195,10 @@ void asrc_processor(chanend_t c_adat_rx_demux){
 
         asrc_in_out_t asrc_io = {0};
 
+        // Frequency info
         int inputFsCode = fs_code(input_frequency);
         int outputFsCode = fs_code(output_frequency);
         int interpolation_ticks = interpolation_ticks_2D[inputFsCode][outputFsCode];
-
         
         ///// FIFO
         asynchronous_fifo_init(fifo, channels, FIFO_LENGTH);
@@ -208,6 +210,10 @@ void asrc_processor(chanend_t c_adat_rx_demux){
         // SCHEDULER
         schedule_info_t schedule[max_asrc_threads];
         int num_jobs = calculate_job_share(max_asrc_threads, channels, schedule);
+        printf("num_jobs: %d, max_asrc_threads: %d, channels: %d\n", num_jobs, max_asrc_threads, channels);
+        for(int i = 0; i < num_jobs; i++){
+            printf("schedule: %d, num_channels: %d, channel_start_idx: %d\n", i, schedule[i].num_channels, schedule[i].channel_start_idx);
+        }
 
         // ASRC
         asrc_state_t sASRCState[SRC_CHANNELS_PER_INSTANCE];                                   // ASRC state machine state
@@ -241,13 +247,16 @@ void asrc_processor(chanend_t c_adat_rx_demux){
                 adat_rx_samples[ch] = chanend_in_word(c_adat_rx_demux);
             }
 
-            asrc_io.input_samples[asrc_in_counter] = adat_rx_samples[0];
+            for(int i = 0; i < SRC_N_CHANNELS; i++){
+                asrc_io.input_samples[asrc_in_counter][i] = adat_rx_samples[i];
+            }
+
             if(++asrc_in_counter == SRC_N_IN_SAMPLES){
                 asrc_in_counter = 0;
                 int num_output_samples = par_asrc(num_jobs, schedule, fs_ratio, &asrc_io, sASRCCtrl);
                 int ts = asrc_timestamp_interpolation(asrc_io.input_timestamp, sASRCCtrl, interpolation_ticks);
-                int error = asynchronous_fifo_produce(fifo, asrc_io.output_samples, num_output_samples, ts, xscope_used);
-                printintln(num_output_samples);
+                int error = asynchronous_fifo_produce(fifo, &asrc_io.output_samples[0][0], num_output_samples, ts, xscope_used);
+                // printintln(num_output_samples);
                 // printf("push @ %d\n", asrc_io.input_timestamp);
                 fs_ratio = (((int64_t)ideal_fs_ratio) << 32) + (error * (int64_t) ideal_fs_ratio);
                 // printintln(error);

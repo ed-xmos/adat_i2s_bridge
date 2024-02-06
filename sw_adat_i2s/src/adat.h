@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <platform.h>
+#include "app_config.h"
 
 enum adat_smux_setting{
     SMUX_NONE = 0,
@@ -10,7 +11,6 @@ enum adat_smux_setting{
     SMUX_IV
 };
 
-#define ADAT_MAX_SAMPLES                8
 typedef struct adat_state_t{
     int32_t samples[ADAT_MAX_SAMPLES];
     int32_t rx_time_latest;

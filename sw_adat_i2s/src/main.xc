@@ -37,9 +37,6 @@ on tile[0]: in port p_buttons =                             XS1_PORT_4E;
 on tile[0]: out port p_leds =                               XS1_PORT_4F;
 
 // I2S resources
-#define NUM_I2S_DAC_LINES                                   2
-#define NUM_I2S_ADC_LINES                                   1
-#define I2S_DATA_BITS                                       32
 on tile[1]: in port p_mclk =                                PORT_MCLK_IN;
 on tile[1]: buffered out port:32 p_lrclk =                  PORT_I2S_LRCLK;
 on tile[1]: out port p_bclk =                               PORT_I2S_BCLK;
@@ -128,14 +125,13 @@ void audio_hub( chanend c_adat_tx,
             case i_i2s.send(size_t num_out, int32_t samples[num_out]):
                 int32_t consume_timestamp;
                 tmr :> consume_timestamp;
-                // samples[0] = adat_rx_samples[0];
-                // samples[1] = adat_rx_samples[1];
-                int32_t asrc_out;
+
+                int32_t asrc_out[NUM_I2S_DAC_LINES];
                 pull_samples(&asrc_out, consume_timestamp);
-                samples[0] = asrc_out;
-                samples[1] = 0;
-                samples[2] = asrc_out;
-                samples[3] = 0;
+                samples[0] = asrc_out[0];
+                samples[1] = asrc_out[1];
+                samples[2] = asrc_out[0];
+                samples[3] = asrc_out[1];
             break;
 
             case c_sr_change :> unsigned id:

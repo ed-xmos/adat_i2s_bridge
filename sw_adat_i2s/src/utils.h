@@ -6,7 +6,6 @@
 #include <stdint.h>
 
 #include "app_config.h"
-#include "adat.h"
 
 #define RATE_LOWER(rate, ppm) ((uint32_t)((float)rate * (1.0 - (float)ppm / 1e6) + 0.5))
 #define RATE_HIGHER(rate, ppm) ((uint32_t)((float)rate * (1.0 + (float)ppm / 1e6)+ 0.5))
