@@ -13,14 +13,11 @@
 #include "app_config.h"
 
 const int max_asrc_threads = 2;
-const unsigned max_asrc_channels_total = 2; // Usef for FIFO
+const unsigned max_asrc_channels_total = 2; // Used for buffer sizing and FIFO sizing
 
-#define     SRC_MAX_SRC_CHANNELS_PER_INSTANCE   2 //unused
+#define     SRC_MAX_SRC_CHANNELS_PER_INSTANCE   4 // Sets maximum number of SRC per thread. Allocates all ASRC storage so minimise to save memeory
 
 
-#define     SRC_N_CHANNELS                  (2)   // Total number of audio channels to be processed by SRC (minimum 1)
-#define     SRC_N_INSTANCES                 (2)   // Number of instances (each usually run a logical core) used to process audio (minimum 1)
-#define     SRC_CHANNELS_PER_INSTANCE       (SRC_N_CHANNELS/SRC_N_INSTANCES) // Calculated number of audio channels processed by each core
 #define     SRC_N_IN_SAMPLES                (4)   // Number of samples per channel in each block passed into SRC each call
                                                   // Must be a power of 2 and minimum value is 4 (due to two /2 decimation stages)
 #define     SRC_N_OUT_IN_RATIO_MAX          (5)   // Max ratio between samples out:in per processing step (44.1->192 is worst case)
@@ -29,7 +26,7 @@ const unsigned max_asrc_channels_total = 2; // Usef for FIFO
 
 /* Stuff that must be defined for lib_src */
 #define     ASRC_N_IN_SAMPLES               (SRC_N_IN_SAMPLES) /* Used by SRC_STACK_LENGTH_MULT in src_mrhf_asrc.h */
-#define     ASRC_N_CHANNELS                 (SRC_CHANNELS_PER_INSTANCE) /* Used by SRC_STACK_LENGTH_MULT in src_mrhf_asrc.h */
+#define     ASRC_N_CHANNELS                 (SRC_MAX_SRC_CHANNELS_PER_INSTANCE) /* Used by SRC_STACK_LENGTH_MULT in src_mrhf_asrc.h */
 
 
 
@@ -83,9 +80,9 @@ int calculate_job_share(const int max_asrc_threads,
 typedef struct asrc_in_out_t{
     unsigned nominal_input_rate;
     unsigned nominal_output_rate;
-    int32_t input_samples[ASRC_N_IN_SAMPLES * SRC_N_CHANNELS];
+    int32_t input_samples[ASRC_N_IN_SAMPLES * max_asrc_channels_total];
     int32_t input_timestamp;
-    int32_t output_samples[SRC_MAX_NUM_SAMPS_OUT * SRC_N_CHANNELS];
+    int32_t output_samples[SRC_MAX_NUM_SAMPS_OUT * max_asrc_channels_total];
     uint32_t num_output_samples;
     int32_t output_time_stamp;
 }asrc_in_out_t;
@@ -93,7 +90,7 @@ typedef struct asrc_in_out_t{
 
 
 DECLARE_JOB(do_asrc_group, (schedule_info_t*, uint64_t, void*, int*, asrc_ctrl_t*));
-void do_asrc_group(schedule_info_t *schedule, uint64_t fs_ratio, void *args, int* num_output_samples, asrc_ctrl_t asrc_ctrl[SRC_CHANNELS_PER_INSTANCE]){
+void do_asrc_group(schedule_info_t *schedule, uint64_t fs_ratio, void *args, int* num_output_samples, asrc_ctrl_t asrc_ctrl[]){
     // printf("do_asrc_groupstart_idx: %u n_channels: %u\n", schedule->channel_start_idx, schedule->num_channels);
     asrc_in_out_t *asrc_io = args;
     // int num_channels = schedule->num_channels;
@@ -103,13 +100,13 @@ void do_asrc_group(schedule_info_t *schedule, uint64_t fs_ratio, void *args, int
     // printintln(channel_start_idx);
 
     // Pack
-    int input_samples[ASRC_N_IN_SAMPLES * SRC_N_CHANNELS];
+    int input_samples[ASRC_N_IN_SAMPLES * max_asrc_channels_total];
     for(int i = 0; i < ASRC_N_IN_SAMPLES; i++){
         int rd_idx = 2 * i + channel_start_idx;
         input_samples[i] = asrc_io->input_samples[rd_idx];
     }
 
-    int output_samples[SRC_MAX_NUM_SAMPS_OUT * SRC_N_CHANNELS];
+    int output_samples[SRC_MAX_NUM_SAMPS_OUT * max_asrc_channels_total];
 
 #if 1
     *num_output_samples = asrc_process(input_samples, output_samples, fs_ratio, asrc_ctrl);
@@ -133,7 +130,7 @@ void do_asrc_group(schedule_info_t *schedule, uint64_t fs_ratio, void *args, int
 
 
 // about 55 ticks ticks overhead to fork and join at 120MIPS 8 channels/ 4 threads
-int par_asrc(int num_jobs, schedule_info_t schedule[], uint64_t fs_ratio, void * args, asrc_ctrl_t asrc_ctrl[max_asrc_threads][SRC_CHANNELS_PER_INSTANCE]){
+int par_asrc(int num_jobs, schedule_info_t schedule[], uint64_t fs_ratio, void * args, asrc_ctrl_t asrc_ctrl[max_asrc_threads][SRC_MAX_SRC_CHANNELS_PER_INSTANCE]){
     int num_output_samples = 0;
     switch(num_jobs){
         case 0:
@@ -253,9 +250,9 @@ void asrc_processor(chanend_t c_adat_rx_demux){
 
 
         // ASRC init
-        asrc_state_t sASRCState[max_asrc_threads][SRC_CHANNELS_PER_INSTANCE];                                   // ASRC state machine state
-        int iASRCStack[max_asrc_threads][SRC_CHANNELS_PER_INSTANCE][ASRC_STACK_LENGTH_MULT * SRC_N_IN_SAMPLES * 10]; // Buffer between filter stages
-        asrc_ctrl_t sASRCCtrl[max_asrc_threads][SRC_CHANNELS_PER_INSTANCE];                                     // Control structure
+        asrc_state_t sASRCState[max_asrc_threads][SRC_MAX_SRC_CHANNELS_PER_INSTANCE];                                   // ASRC state machine state
+        int iASRCStack[max_asrc_threads][SRC_MAX_SRC_CHANNELS_PER_INSTANCE][ASRC_STACK_LENGTH_MULT * SRC_N_IN_SAMPLES * 3]; // Buffer between filter stages
+        asrc_ctrl_t sASRCCtrl[max_asrc_threads][SRC_MAX_SRC_CHANNELS_PER_INSTANCE];                                     // Control structure
         asrc_adfir_coefs_t asrc_adfir_coefs[max_asrc_threads];                                                  // Adaptive filter coefficients
 
         uint64_t fs_ratio = 0;
@@ -290,7 +287,7 @@ void asrc_processor(chanend_t c_adat_rx_demux){
             }
 
             // Pack into array properly LRLRLRLR etc.
-            for(int i = 0; i < SRC_N_CHANNELS; i++){
+            for(int i = 0; i < channels; i++){
                 int idx = i + 2 * asrc_in_counter;
                 asrc_io.input_samples[idx] = adat_rx_samples[i];
             }
