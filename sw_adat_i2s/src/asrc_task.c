@@ -11,7 +11,9 @@
 #include "app_config.h"
 
 const int max_asrc_threads = 1;
-const unsigned max_asrc_channels = 2;
+const unsigned max_asrc_channels_total = 2; // Usef for FIFO
+
+#define     SRC_MAX_SRC_CHANNELS_PER_INSTANCE   2 //unused
 
 
 #define     SRC_N_CHANNELS                  (2)   // Total number of audio channels to be processed by SRC (minimum 1)
@@ -162,8 +164,8 @@ int par_asrc(int num_jobs, schedule_info_t schedule[], uint64_t fs_ratio, void *
 
 
 ///// FIFO
-#define FIFO_LENGTH   50
-int64_t array[ASYNCHRONOUS_FIFO_INT64_ELEMENTS(FIFO_LENGTH, max_asrc_channels)];
+#define FIFO_LENGTH   100
+int64_t array[ASYNCHRONOUS_FIFO_INT64_ELEMENTS(FIFO_LENGTH, max_asrc_channels_total)];
 asynchronous_fifo_t *fifo = (asynchronous_fifo_t *)array;
 
 
@@ -219,12 +221,12 @@ void asrc_processor(chanend_t c_adat_rx_demux){
 
         // ASRC
         asrc_state_t sASRCState[max_asrc_threads][SRC_CHANNELS_PER_INSTANCE];                                   // ASRC state machine state
-        int iASRCStack[max_asrc_threads][SRC_CHANNELS_PER_INSTANCE][ASRC_STACK_LENGTH_MULT * SRC_N_IN_SAMPLES * 100]; // Buffer between filter stages
+        int iASRCStack[max_asrc_threads][SRC_CHANNELS_PER_INSTANCE][ASRC_STACK_LENGTH_MULT * SRC_N_IN_SAMPLES * 1]; // Buffer between filter stages
         asrc_ctrl_t sASRCCtrl[max_asrc_threads][SRC_CHANNELS_PER_INSTANCE];                                     // Control structure
         asrc_adfir_coefs_t asrc_adfir_coefs[max_asrc_threads];                                                  // Adaptive filter coefficients
 
         for(int instance = 0; instance < max_asrc_threads; instance++){
-            for(int ch = 0; ch < SRC_CHANNELS_PER_INSTANCE; ch++){
+            for(int ch = 0; ch < channels_per_instance; ch++){
                 // Set state, stack and coefs into ctrl structure
                 sASRCCtrl[instance][ch].psState                   = &sASRCState[instance][ch];
                 sASRCCtrl[instance][ch].piStack                   = iASRCStack[instance][ch];
@@ -235,7 +237,7 @@ void asrc_processor(chanend_t c_adat_rx_demux){
         uint64_t fs_ratio = 0;
         int ideal_fs_ratio = 0;
 
-        fs_ratio = asrc_init(inputFsCode, outputFsCode, sASRCCtrl[0], SRC_CHANNELS_PER_INSTANCE, SRC_N_IN_SAMPLES, SRC_DITHER_SETTING);
+        fs_ratio = asrc_init(inputFsCode, outputFsCode, sASRCCtrl[0], channels_per_instance, SRC_N_IN_SAMPLES, SRC_DITHER_SETTING);
         ideal_fs_ratio = (fs_ratio + (1<<31)) >> 32;
         printf("ideal_fs_ratio: %d\n", ideal_fs_ratio);
 
@@ -265,7 +267,7 @@ void asrc_processor(chanend_t c_adat_rx_demux){
                 fs_ratio = (((int64_t)ideal_fs_ratio) << 32) + (error * (int64_t) ideal_fs_ratio);
                 // printintln(error);
                 static int print_counter = 0;
-                if(++print_counter == 10000){
+                if(++print_counter == 50000){
                     printf("depth: %lu\n", (fifo->write_ptr - fifo->read_ptr + fifo->max_fifo_depth) % fifo->max_fifo_depth);
                     print_counter = 0;
                 }
