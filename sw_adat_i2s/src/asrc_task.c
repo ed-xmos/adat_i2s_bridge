@@ -215,23 +215,27 @@ void asrc_processor(chanend_t c_adat_rx_demux){
             printf("schedule: %d, num_channels: %d, channel_start_idx: %d\n", i, schedule[i].num_channels, schedule[i].channel_start_idx);
         }
 
-        // ASRC
-        asrc_state_t sASRCState[SRC_CHANNELS_PER_INSTANCE];                                   // ASRC state machine state
-        int iASRCStack[SRC_CHANNELS_PER_INSTANCE][ASRC_STACK_LENGTH_MULT * SRC_N_IN_SAMPLES * 100]; // Buffer between filter stages
-        asrc_ctrl_t sASRCCtrl[SRC_CHANNELS_PER_INSTANCE];                                     // Control structure
-        asrc_adfir_coefs_t asrc_adfir_coefs;                                                  // Adaptive filter coefficients
+        int channels_per_instance = schedule[0].num_channels;
 
-        for(int ui = 0; ui < SRC_CHANNELS_PER_INSTANCE; ui++){
-            // Set state, stack and coefs into ctrl structure
-            sASRCCtrl[ui].psState                   = &sASRCState[ui];
-            sASRCCtrl[ui].piStack                   = iASRCStack[ui];
-            sASRCCtrl[ui].piADCoefs                 = asrc_adfir_coefs.iASRCADFIRCoefs;
+        // ASRC
+        asrc_state_t sASRCState[max_asrc_threads][SRC_CHANNELS_PER_INSTANCE];                                   // ASRC state machine state
+        int iASRCStack[max_asrc_threads][SRC_CHANNELS_PER_INSTANCE][ASRC_STACK_LENGTH_MULT * SRC_N_IN_SAMPLES * 100]; // Buffer between filter stages
+        asrc_ctrl_t sASRCCtrl[max_asrc_threads][SRC_CHANNELS_PER_INSTANCE];                                     // Control structure
+        asrc_adfir_coefs_t asrc_adfir_coefs[max_asrc_threads];                                                  // Adaptive filter coefficients
+
+        for(int instance = 0; instance < max_asrc_threads; instance++){
+            for(int ch = 0; ch < SRC_CHANNELS_PER_INSTANCE; ch++){
+                // Set state, stack and coefs into ctrl structure
+                sASRCCtrl[instance][ch].psState                   = &sASRCState[instance][ch];
+                sASRCCtrl[instance][ch].piStack                   = iASRCStack[instance][ch];
+                sASRCCtrl[instance][ch].piADCoefs                 = asrc_adfir_coefs[instance].iASRCADFIRCoefs;
+            }
         }
 
         uint64_t fs_ratio = 0;
         int ideal_fs_ratio = 0;
 
-        fs_ratio = asrc_init(inputFsCode, outputFsCode, sASRCCtrl, SRC_CHANNELS_PER_INSTANCE, SRC_N_IN_SAMPLES, SRC_DITHER_SETTING);
+        fs_ratio = asrc_init(inputFsCode, outputFsCode, sASRCCtrl[0], SRC_CHANNELS_PER_INSTANCE, SRC_N_IN_SAMPLES, SRC_DITHER_SETTING);
         ideal_fs_ratio = (fs_ratio + (1<<31)) >> 32;
         printf("ideal_fs_ratio: %d\n", ideal_fs_ratio);
 
@@ -253,8 +257,8 @@ void asrc_processor(chanend_t c_adat_rx_demux){
 
             if(++asrc_in_counter == SRC_N_IN_SAMPLES){
                 asrc_in_counter = 0;
-                int num_output_samples = par_asrc(num_jobs, schedule, fs_ratio, &asrc_io, sASRCCtrl);
-                int ts = asrc_timestamp_interpolation(asrc_io.input_timestamp, sASRCCtrl, interpolation_ticks);
+                int num_output_samples = par_asrc(num_jobs, schedule, fs_ratio, &asrc_io, sASRCCtrl[0]);
+                int ts = asrc_timestamp_interpolation(asrc_io.input_timestamp, sASRCCtrl[0], interpolation_ticks);
                 int error = asynchronous_fifo_produce(fifo, &asrc_io.output_samples[0][0], num_output_samples, ts, xscope_used);
                 // printintln(num_output_samples);
                 // printf("push @ %d\n", asrc_io.input_timestamp);
