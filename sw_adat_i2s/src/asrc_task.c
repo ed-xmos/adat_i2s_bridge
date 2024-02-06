@@ -9,6 +9,7 @@
 #include "asrc_timestamp_interpolation.h"
 
 const int max_asrc_threads = 4;
+const unsigned max_asrc_channels = 8;
 
 
 #define     SRC_N_CHANNELS                  (1)   // Total number of audio channels to be processed by SRC (minimum 1)
@@ -19,7 +20,6 @@ const int max_asrc_threads = 4;
 #define     SRC_N_OUT_IN_RATIO_MAX          (5)   // Max ratio between samples out:in per processing step (44.1->192 is worst case)
 #define     SRC_DITHER_SETTING              (0)   // Enables or disables quantisation of output with dithering to 24b
 #define     SRC_MAX_NUM_SAMPS_OUT           (SRC_N_OUT_IN_RATIO_MAX * SRC_N_IN_SAMPLES)
-#define     SRC_OUT_BUFF_SIZE               (SRC_CHANNELS_PER_INSTANCE * SRC_MAX_NUM_SAMPS_OUT) // Size of output buffer for SRC for each instance
 
 /* Stuff that must be defined for lib_src */
 #define     ASRC_N_IN_SAMPLES               (SRC_N_IN_SAMPLES) /* Used by SRC_STACK_LENGTH_MULT in src_mrhf_asrc.h */
@@ -53,9 +53,9 @@ typedef struct schedule_info_t{
 }schedule_info_t;
 
 
-int calculate_job_share(   const int max_asrc_threads,
-                            int channels,
-                            schedule_info_t *schedule){
+int calculate_job_share(const int max_asrc_threads,
+                        int channels,
+                        schedule_info_t *schedule){
     int channels_per_first_job = (channels + max_asrc_threads - 1) / max_asrc_threads; // Rounded up channels per max jobs
     int channels_per_last_job = 0;
 
@@ -76,7 +76,8 @@ int calculate_job_share(   const int max_asrc_threads,
 
 typedef struct asrc_in_out_t{
     unsigned nominal_input_rate;
-    unsigned nominal_output_rate;    int32_t input_samples[ASRC_N_IN_SAMPLES];
+    unsigned nominal_output_rate;
+    int32_t input_samples[ASRC_N_IN_SAMPLES];
     int32_t input_timestamp;
     int32_t output_samples[SRC_MAX_NUM_SAMPS_OUT];
     uint32_t num_output_samples;
@@ -159,8 +160,8 @@ int par_asrc(int num_jobs, schedule_info_t schedule[], uint64_t fs_ratio, void *
 
 
 ///// FIFO
-#define FIFO_LENGTH   100
-int64_t array[ASYNCHRONOUS_FIFO_INT64_ELEMENTS(FIFO_LENGTH, 1)];
+#define FIFO_LENGTH   50
+int64_t array[ASYNCHRONOUS_FIFO_INT64_ELEMENTS(FIFO_LENGTH, max_asrc_channels)];
 asynchronous_fifo_t *fifo = (asynchronous_fifo_t *)array;
 
 
@@ -246,6 +247,7 @@ void asrc_processor(chanend_t c_adat_rx_demux){
                 int num_output_samples = par_asrc(num_jobs, schedule, fs_ratio, &asrc_io, sASRCCtrl);
                 int ts = asrc_timestamp_interpolation(asrc_io.input_timestamp, sASRCCtrl, interpolation_ticks);
                 int error = asynchronous_fifo_produce(fifo, asrc_io.output_samples, num_output_samples, ts, xscope_used);
+                printintln(num_output_samples);
                 // printf("push @ %d\n", asrc_io.input_timestamp);
                 fs_ratio = (((int64_t)ideal_fs_ratio) << 32) + (error * (int64_t) ideal_fs_ratio);
                 // printintln(error);
@@ -259,8 +261,8 @@ void asrc_processor(chanend_t c_adat_rx_demux){
             }
 
             if(new_adat_rx_rate != input_frequency){
-                printf("ADAT Rx sample rate change: %u", new_adat_rx_rate);
                 if(new_adat_rx_rate != 0){
+                    printf("ADAT Rx sample rate change: %u", new_adat_rx_rate);
                     input_frequency = new_adat_rx_rate;
                     audio_format_change = 1;
                 }
