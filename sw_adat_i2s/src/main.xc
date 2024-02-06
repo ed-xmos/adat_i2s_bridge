@@ -40,13 +40,10 @@ on tile[0]: out port p_leds =                               XS1_PORT_4F;
 on tile[1]: in port p_mclk =                                PORT_MCLK_IN;
 on tile[1]: buffered out port:32 p_lrclk =                  PORT_I2S_LRCLK;
 on tile[1]: out port p_bclk =                               PORT_I2S_BCLK;
-on tile[1]: buffered out port:32 p_dac[NUM_I2S_DAC_LINES] = {PORT_I2S_DAC0, PORT_I2S_DAC1};
+on tile[1]: buffered out port:32 p_dac[NUM_I2S_DAC_LINES] = {PORT_I2S_DAC0, PORT_I2S_DAC1, PORT_I2S_DAC2, PORT_I2S_DAC3};
 on tile[1]: buffered in port:32 p_adc[NUM_I2S_ADC_LINES] =  {PORT_I2S_ADC0};
 on tile[1]: clock bclk =                                    XS1_CLKBLK_1;
 
-
-// in asrc_task.c
-extern "C" {void pull_samples(int32_t *samples, int32_t consume_timestamp);}
 
 // Global to allow asrc_task to poll it
 uint32_t current_i2s_rate = 0;                  // Set to invalid
@@ -126,12 +123,17 @@ void audio_hub( chanend c_adat_tx,
                 int32_t consume_timestamp;
                 tmr :> consume_timestamp;
 
-                int32_t asrc_out[NUM_I2S_DAC_LINES];
-                pull_samples(&asrc_out, consume_timestamp);
-                samples[0] = asrc_out[0];
-                samples[1] = asrc_out[1];
-                samples[2] = asrc_out[0];
-                samples[3] = asrc_out[1];
+                for(int ch = 0; ch < num_out; ch++){
+                    samples[ch] = 0;
+                }
+
+                int32_t asrc_out[8]; // TODO make max ASRC channels
+                int asrc_channel_count = pull_samples(asrc_out, consume_timestamp);
+                for(int ch = 0; ch < NUM_I2S_DAC_LINES * 2; ch++){
+                    samples[0 + ch] = asrc_out[ch];
+                    // samples[4 + ch] = asrc_out[ch]; // Copy for out 5/6
+                }
+                // printintln(samples[1]);
             break;
 
             case c_sr_change :> unsigned id:
