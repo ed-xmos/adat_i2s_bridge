@@ -7,30 +7,15 @@
 #include <print.h>
 #include <string.h>
 
-#include "src.h"
+#include "asrc_task.h"
 #include "asynchronous_fifo.h"
 #include "asrc_timestamp_interpolation.h"
 
+#include "adat_wrapper.h"
+
 #include "app_config.h"
 
-const int max_asrc_threads = 2;
-const unsigned max_asrc_channels_total = 8; // Used for buffer sizing and FIFO sizing
-
-int asrc_channel_count = 8;
-
-
-#define     SRC_MAX_SRC_CHANNELS_PER_INSTANCE   4 // Sets maximum number of SRC per thread. Allocates all ASRC storage so minimise to save memeory
-
-
-#define     SRC_N_IN_SAMPLES                (4)   // Number of samples per channel in each block passed into SRC each call
-                                                  // Must be a power of 2 and minimum value is 4 (due to two /2 decimation stages)
-#define     SRC_N_OUT_IN_RATIO_MAX          (5)   // Max ratio between samples out:in per processing step (44.1->192 is worst case)
-#define     SRC_DITHER_SETTING              (0)   // Enables or disables quantisation of output with dithering to 24b
-#define     SRC_MAX_NUM_SAMPS_OUT           (SRC_N_OUT_IN_RATIO_MAX * SRC_N_IN_SAMPLES)
-
-/* Stuff that must be defined for lib_src */
-#define     ASRC_N_IN_SAMPLES               (SRC_N_IN_SAMPLES) /* Used by SRC_STACK_LENGTH_MULT in src_mrhf_asrc.h */
-#define     ASRC_N_CHANNELS                 (SRC_MAX_SRC_CHANNELS_PER_INSTANCE) /* Used by SRC_STACK_LENGTH_MULT in src_mrhf_asrc.h */
+int asrc_channel_count = 6;                 // Current channel count (dynamic)
 
 
 
@@ -60,10 +45,9 @@ typedef struct schedule_info_t{
 }schedule_info_t;
 
 
-int calculate_job_share(const int max_asrc_threads,
-                        int asrc_channel_count,
+int calculate_job_share(int asrc_channel_count,
                         schedule_info_t *schedule){
-    int channels_per_first_job = (asrc_channel_count + max_asrc_threads - 1) / max_asrc_threads; // Rounded up channels per max jobs
+    int channels_per_first_job = (asrc_channel_count + MAX_ASRC_THREADS - 1) / MAX_ASRC_THREADS; // Rounded up channels per max jobs
     int channels_per_last_job = 0;
 
     int num_jobs = 0;
@@ -81,17 +65,6 @@ int calculate_job_share(const int max_asrc_threads,
     return num_jobs;
 }
 
-typedef struct asrc_in_out_t{
-    unsigned nominal_input_rate;
-    unsigned nominal_output_rate;
-    int32_t input_samples[ASRC_N_IN_SAMPLES * max_asrc_channels_total];
-    int32_t input_timestamp;
-    int32_t output_samples[SRC_MAX_NUM_SAMPS_OUT * max_asrc_channels_total];
-    uint32_t num_output_samples;
-    int32_t output_time_stamp;
-}asrc_in_out_t;
-
-
 
 DECLARE_JOB(do_asrc_group, (schedule_info_t*, uint64_t, void*, int*, asrc_ctrl_t*));
 void do_asrc_group(schedule_info_t *schedule, uint64_t fs_ratio, void *args, int* num_output_samples, asrc_ctrl_t asrc_ctrl[]){
@@ -101,15 +74,15 @@ void do_asrc_group(schedule_info_t *schedule, uint64_t fs_ratio, void *args, int
     int worker_channel_start_idx = schedule->channel_start_idx;
 
     // Pack
-    int input_samples[ASRC_N_IN_SAMPLES * max_asrc_channels_total];
+    int input_samples[ASRC_N_IN_SAMPLES * MAX_ASRC_CHANNELS_TOTAL];
     for(int i = 0; i < ASRC_N_IN_SAMPLES * num_worker_channels; i++){
         int rd_idx = i % num_worker_channels + (i / num_worker_channels) * asrc_channel_count + worker_channel_start_idx;
         input_samples[i] = asrc_io->input_samples[rd_idx];
     }
 
-    int output_samples[SRC_MAX_NUM_SAMPS_OUT * max_asrc_channels_total];
+    int output_samples[SRC_MAX_NUM_SAMPS_OUT * MAX_ASRC_CHANNELS_TOTAL];
 
-#if 0
+#if 1
     *num_output_samples = asrc_process(input_samples, output_samples, fs_ratio, asrc_ctrl);
 #else
     // Bypass at fsin = fsout
@@ -134,7 +107,7 @@ void do_asrc_group(schedule_info_t *schedule, uint64_t fs_ratio, void *args, int
 
 
 // about 55 ticks ticks overhead to fork and join at 120MIPS 8 channels/ 4 threads
-int par_asrc(int num_jobs, schedule_info_t schedule[], uint64_t fs_ratio, void * args, asrc_ctrl_t asrc_ctrl[max_asrc_threads][SRC_MAX_SRC_CHANNELS_PER_INSTANCE]){
+int par_asrc(int num_jobs, schedule_info_t schedule[], uint64_t fs_ratio, void * args, asrc_ctrl_t asrc_ctrl[MAX_ASRC_THREADS][SRC_MAX_SRC_CHANNELS_PER_INSTANCE]){
     int num_output_samples = 0;
 
     switch(num_jobs){
@@ -146,12 +119,15 @@ int par_asrc(int num_jobs, schedule_info_t schedule[], uint64_t fs_ratio, void *
                 PJOB(do_asrc_group, (&schedule[0], fs_ratio, args, &num_output_samples, asrc_ctrl[0]))
             );
         break;
+#if MAX_ASRC_THREADS > 1
         case 2:
             PAR_JOBS(
                 PJOB(do_asrc_group, (&schedule[0], fs_ratio, args, &num_output_samples, asrc_ctrl[0])),
                 PJOB(do_asrc_group, (&schedule[1], fs_ratio, args, &num_output_samples, asrc_ctrl[1]))
             );
         break;
+#endif
+#if MAX_ASRC_THREADS > 2
         case 3:
             PAR_JOBS(
                 PJOB(do_asrc_group, (&schedule[0], fs_ratio, args, &num_output_samples, asrc_ctrl[0])),
@@ -159,6 +135,8 @@ int par_asrc(int num_jobs, schedule_info_t schedule[], uint64_t fs_ratio, void *
                 PJOB(do_asrc_group, (&schedule[2], fs_ratio, args, &num_output_samples, asrc_ctrl[2]))
             );
         break;
+#endif
+#if MAX_ASRC_THREADS > 3
         case 4:
             PAR_JOBS(
                 PJOB(do_asrc_group, (&schedule[0], fs_ratio, args, &num_output_samples, asrc_ctrl[0])),
@@ -167,27 +145,32 @@ int par_asrc(int num_jobs, schedule_info_t schedule[], uint64_t fs_ratio, void *
                 PJOB(do_asrc_group, (&schedule[3], fs_ratio, args, &num_output_samples, asrc_ctrl[3]))
             );
         break;
-        // case 5:
-        //     PAR_JOBS(
-        //         PJOB(do_asrc_group, (&schedule[0], fs_ratio, args, &num_output_samples, asrc_ctrl)),
-        //         PJOB(do_asrc_group, (&schedule[1], fs_ratio, args, &num_output_samples, asrc_ctrl)),
-        //         PJOB(do_asrc_group, (&schedule[2], fs_ratio, args, &num_output_samples, asrc_ctrl)),
-        //         PJOB(do_asrc_group, (&schedule[3], fs_ratio, args, &num_output_samples, asrc_ctrl)),
-        //         PJOB(do_asrc_group, (&schedule[4], fs_ratio, args, &num_output_samples, asrc_ctrl))
-        //     );
-        // break;
-        // case 6:
-        //     PAR_JOBS(
-        //         PJOB(do_asrc_group, (&schedule[0], fs_ratio, args, &num_output_samples, asrc_ctrl)),
-        //         PJOB(do_asrc_group, (&schedule[1], fs_ratio, args, &num_output_samples, asrc_ctrl)),
-        //         PJOB(do_asrc_group, (&schedule[2], fs_ratio, args, &num_output_samples, asrc_ctrl)),
-        //         PJOB(do_asrc_group, (&schedule[3], fs_ratio, args, &num_output_samples, asrc_ctrl)),
-        //         PJOB(do_asrc_group, (&schedule[4], fs_ratio, args, &num_output_samples, asrc_ctrl)),
-        //         PJOB(do_asrc_group, (&schedule[5], fs_ratio, args, &num_output_samples, asrc_ctrl))
-        //     );
-        // break;
+#endif
+#if MAX_ASRC_THREADS > 4
+        case 5:
+            PAR_JOBS(
+                PJOB(do_asrc_group, (&schedule[0], fs_ratio, args, &num_output_samples, asrc_ctrl[0])),
+                PJOB(do_asrc_group, (&schedule[1], fs_ratio, args, &num_output_samples, asrc_ctrl[1])),
+                PJOB(do_asrc_group, (&schedule[2], fs_ratio, args, &num_output_samples, asrc_ctrl[2])),
+                PJOB(do_asrc_group, (&schedule[3], fs_ratio, args, &num_output_samples, asrc_ctrl[3])),
+                PJOB(do_asrc_group, (&schedule[4], fs_ratio, args, &num_output_samples, asrc_ctrl[4]))
+            );
+        break;
+#endif
+#if MAX_ASRC_THREADS > 5
+        case 6:
+            PAR_JOBS(
+                PJOB(do_asrc_group, (&schedule[0], fs_ratio, args, &num_output_samples, asrc_ctrl[0])),
+                PJOB(do_asrc_group, (&schedule[1], fs_ratio, args, &num_output_samples, asrc_ctrl[1])),
+                PJOB(do_asrc_group, (&schedule[2], fs_ratio, args, &num_output_samples, asrc_ctrl[2])),
+                PJOB(do_asrc_group, (&schedule[3], fs_ratio, args, &num_output_samples, asrc_ctrl[3])),
+                PJOB(do_asrc_group, (&schedule[4], fs_ratio, args, &num_output_samples, asrc_ctrl[4])),
+                PJOB(do_asrc_group, (&schedule[5], fs_ratio, args, &num_output_samples, asrc_ctrl[5]))
+            );
+        break;
+#endif
         default:
-            xassert(0); // Too many jobs specified
+            xassert(0); // Too many or no jobs specified
         break;
     }
     return num_output_samples;
@@ -197,7 +180,7 @@ int par_asrc(int num_jobs, schedule_info_t schedule[], uint64_t fs_ratio, void *
 
 ///// FIFO
 #define FIFO_LENGTH   100
-int64_t array[ASYNCHRONOUS_FIFO_INT64_ELEMENTS(FIFO_LENGTH, max_asrc_channels_total)];
+int64_t array[ASYNCHRONOUS_FIFO_INT64_ELEMENTS(FIFO_LENGTH, MAX_ASRC_CHANNELS_TOTAL)];
 asynchronous_fifo_t *fifo = (asynchronous_fifo_t *)array;
 
 
@@ -211,7 +194,7 @@ int pull_samples(int32_t *samples, int32_t consume_timestamp){
 
 extern uint32_t current_i2s_rate;
 
-void asrc_processor(chanend_t c_adat_rx_demux){
+void asrc_processor(chanend_t c_asrc_input){
     uint32_t input_frequency = 48000;
     uint32_t output_frequency = 48000;
 
@@ -229,12 +212,13 @@ void asrc_processor(chanend_t c_adat_rx_demux){
     while(1){
         int audio_format_change = 0;
 
-        asrc_in_out_t asrc_io = {0};
+        asrc_in_out_t asrc_io = {{0}};
 
         // Frequency info
         int inputFsCode = fs_code(input_frequency);
         int outputFsCode = fs_code(output_frequency);
         int interpolation_ticks = interpolation_ticks_2D[inputFsCode][outputFsCode];
+        printf("Input fs: %lu Output fs: %lu\n", input_frequency, output_frequency);
         
         ///// FIFO
         asynchronous_fifo_init(fifo, asrc_channel_count, FIFO_LENGTH);
@@ -242,72 +226,59 @@ void asrc_processor(chanend_t c_adat_rx_demux){
         printf("FIFO init channels: %d\n", asrc_channel_count);
 
 
-        // demuxed ADAT Rx
-        int32_t adat_rx_samples[8] = {0};
 
         // SCHEDULER
-        schedule_info_t schedule[max_asrc_threads];
-        int num_jobs = calculate_job_share(max_asrc_threads, asrc_channel_count, schedule);
-        printf("num_jobs: %d, max_asrc_threads: %d, asrc_channel_count: %d\n", num_jobs, max_asrc_threads, asrc_channel_count);
+        schedule_info_t schedule[MAX_ASRC_THREADS];
+        int num_jobs = calculate_job_share(asrc_channel_count, schedule);
+        printf("num_jobs: %d, MAX_ASRC_THREADS: %d, asrc_channel_count: %d\n", num_jobs, MAX_ASRC_THREADS, asrc_channel_count);
         for(int i = 0; i < num_jobs; i++){
             printf("schedule: %d, num_channels: %d, channel_start_idx: %d\n", i, schedule[i].num_channels, schedule[i].channel_start_idx);
         }
 
-        int channels_per_instance = schedule[0].num_channels;
-        printf("channels_per_instance: %d\n", channels_per_instance);
-
+        int max_channels_per_instance = schedule[0].num_channels;
+        printf("max_channels_per_instance: %d\n", max_channels_per_instance);
 
         // ASRC init
-        asrc_state_t sASRCState[max_asrc_threads][SRC_MAX_SRC_CHANNELS_PER_INSTANCE];                                   // ASRC state machine state
-        int iASRCStack[max_asrc_threads][SRC_MAX_SRC_CHANNELS_PER_INSTANCE][ASRC_STACK_LENGTH_MULT * SRC_N_IN_SAMPLES * 3]; // Buffer between filter stages
-        asrc_ctrl_t sASRCCtrl[max_asrc_threads][SRC_MAX_SRC_CHANNELS_PER_INSTANCE];                                     // Control structure
-        asrc_adfir_coefs_t asrc_adfir_coefs[max_asrc_threads];                                                           // Adaptive filter coefficients
+        asrc_state_t sASRCState[MAX_ASRC_THREADS][SRC_MAX_SRC_CHANNELS_PER_INSTANCE];                                   // ASRC state machine state
+        int iASRCStack[MAX_ASRC_THREADS][SRC_MAX_SRC_CHANNELS_PER_INSTANCE][ASRC_STACK_LENGTH_MULT * SRC_N_IN_SAMPLES ]; // Buffer between filter stages
+        asrc_ctrl_t sASRCCtrl[MAX_ASRC_THREADS][SRC_MAX_SRC_CHANNELS_PER_INSTANCE];                                     // Control structure
+        asrc_adfir_coefs_t asrc_adfir_coefs[MAX_ASRC_THREADS];                                                           // Adaptive filter coefficients
 
         uint64_t fs_ratio = 0;
         int ideal_fs_ratio = 0;
 
         for(int instance = 0; instance < num_jobs; instance++){
-            for(int ch = 0; ch < channels_per_instance; ch++){
+            for(int ch = 0; ch < max_channels_per_instance; ch++){
                 // Set state, stack and coefs into ctrl structure
                 sASRCCtrl[instance][ch].psState                   = &sASRCState[instance][ch];
                 sASRCCtrl[instance][ch].piStack                   = iASRCStack[instance][ch];
                 sASRCCtrl[instance][ch].piADCoefs                 = asrc_adfir_coefs[instance].iASRCADFIRCoefs;
             }
-            fs_ratio = asrc_init(inputFsCode, outputFsCode, sASRCCtrl[instance], channels_per_instance, SRC_N_IN_SAMPLES, SRC_DITHER_SETTING);
-            printf("ASRC init instance: %d\n", instance);
+            fs_ratio = asrc_init(inputFsCode, outputFsCode, sASRCCtrl[instance], max_channels_per_instance, SRC_N_IN_SAMPLES, SRC_DITHER_SETTING);
+            printf("ASRC init instance: %d ptr: %p\n", instance, sASRCCtrl[instance]);
         }
 
+        // Timing check vars. Includes ASRC, timestamp interpolation and FIFO push
+        int32_t asrc_process_time_limit = (XS1_TIMER_HZ / input_frequency) * SRC_N_IN_SAMPLES;
+        printf("ASRC process_time_limit: %ld\n", asrc_process_time_limit);
+        int32_t asrc_peak_processing_time = 0;
 
 
         ideal_fs_ratio = (fs_ratio + (1<<31)) >> 32;
         printf("ideal_fs_ratio: %d\n", ideal_fs_ratio);
 
-        unsigned asrc_in_counter = 0;
+        unsigned asrc_in_counter = 0;   // Used for building a frame of SRC_N_IN_SAMPLES samples to pass to ASRC
         const int xscope_used = 0;
 
         while(!audio_format_change){
 
-            // Get ADAT samples
-            unsigned new_adat_rx_rate = chanend_in_word(c_adat_rx_demux);
-            asrc_io.input_timestamp = get_reference_time();
-            unsigned adat_rx_channels = chanend_in_word(c_adat_rx_demux);
-            for(unsigned ch = 0; ch < adat_rx_channels; ch++){
-                adat_rx_samples[ch] = chanend_in_word(c_adat_rx_demux);
-            }
-
-
-            // Pack into array properly LRLRLRLR or 123412341234 etc.
-            for(int i = 0; i < asrc_channel_count; i++){
-                int idx = i + asrc_channel_count * asrc_in_counter;
-                asrc_io.input_samples[idx] = adat_rx_samples[i];
-            }
-            // printintln(adat_rx_channels);
-            // printintln(adat_rx_samples[0]);
+            unsigned new_input_rate = 0;
+            receive_adat_samples(c_asrc_input, &asrc_io, asrc_channel_count, asrc_in_counter, &new_input_rate);
 
 
             if(++asrc_in_counter == SRC_N_IN_SAMPLES){
                 // printintln(asrc_io.input_samples[24]);
-
+                int32_t t0 = get_reference_time();
                 asrc_in_counter = 0;
                 int num_output_samples = par_asrc(num_jobs, schedule, fs_ratio, &asrc_io, sASRCCtrl);
                 // printintln(asrc_io.output_samples[0]);
@@ -317,7 +288,14 @@ void asrc_processor(chanend_t c_adat_rx_demux){
                 // printf("push @ %d\n", asrc_io.input_timestamp);
                 fs_ratio = (((int64_t)ideal_fs_ratio) << 32) + (error * (int64_t) ideal_fs_ratio);
                 // printintln(error);
+                int32_t t1 = get_reference_time();
 
+                if(t1 - t0 > asrc_peak_processing_time){
+                    asrc_peak_processing_time = t1 - t0;
+                    printintln(asrc_peak_processing_time);
+                }
+
+                // Remove me. This is here to monitor PID loop convergence during dev
                 static int print_counter = 0;
                 if(++print_counter == 50000){
                     printf("depth: %lu\n", (fifo->write_ptr - fifo->read_ptr + fifo->max_fifo_depth) % fifo->max_fifo_depth);
@@ -327,10 +305,9 @@ void asrc_processor(chanend_t c_adat_rx_demux){
 
             }
 
-            if(new_adat_rx_rate != input_frequency){
-                if(new_adat_rx_rate != 0){
-                    printf("ADAT Rx sample rate change: %u", new_adat_rx_rate);
-                    input_frequency = new_adat_rx_rate;
+            if(new_input_rate != input_frequency){
+                if(new_input_rate != 0){
+                    input_frequency = new_input_rate;
                     audio_format_change = 1;
                 }
             }

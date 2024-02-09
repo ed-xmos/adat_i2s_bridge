@@ -4,7 +4,7 @@
 #include <print.h>
 
 #include "app_config.h"
-#include "adat.h"
+#include "adat_wrapper.h"
 
 
 typedef struct button_state_t{

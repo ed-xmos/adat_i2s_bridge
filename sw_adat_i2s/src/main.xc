@@ -10,7 +10,7 @@
 #include "adat_rx.h"
 #include "adat_tx.h"
 
-#include "adat.h"
+#include "adat_wrapper.h"
 extern "C"{
     #include "asrc_task.h"
 }
@@ -40,7 +40,8 @@ on tile[0]: out port p_leds =                               XS1_PORT_4F;
 on tile[1]: in port p_mclk =                                PORT_MCLK_IN;
 on tile[1]: buffered out port:32 p_lrclk =                  PORT_I2S_LRCLK;
 on tile[1]: out port p_bclk =                               PORT_I2S_BCLK;
-on tile[1]: buffered out port:32 p_dac[NUM_I2S_DAC_LINES] = {PORT_I2S_DAC0, PORT_I2S_DAC1, PORT_I2S_DAC2, PORT_I2S_DAC3};
+// on tile[1]: buffered out port:32 p_dac[NUM_I2S_DAC_LINES] = {PORT_I2S_DAC0, PORT_I2S_DAC1, PORT_I2S_DAC2, PORT_I2S_DAC3};
+on tile[1]: buffered out port:32 p_dac[NUM_I2S_DAC_LINES] = {PORT_I2S_DAC0, PORT_I2S_DAC1, PORT_I2S_DAC2};
 on tile[1]: buffered in port:32 p_adc[NUM_I2S_ADC_LINES] =  {PORT_I2S_ADC0};
 on tile[1]: clock bclk =                                    XS1_CLKBLK_1;
 

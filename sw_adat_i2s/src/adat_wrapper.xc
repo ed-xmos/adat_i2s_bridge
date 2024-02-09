@@ -2,9 +2,30 @@
 
 #include "adat_rx.h"
 
-#include "adat.h"
+#include "adat_wrapper.h"
 #include "utils.h"
 #include "app_config.h"
+
+
+void receive_adat_samples(chanend c_adat_rx_demux, asrc_in_out_t &asrc_io, unsigned asrc_channel_count, unsigned asrc_in_counter, unsigned &new_input_rate){
+    // demuxed ADAT Rx
+    int32_t adat_rx_samples[8] = {0};
+
+    // Get ADAT samples
+    timer tmr;
+    new_input_rate = inuint(c_adat_rx_demux);
+    tmr :> asrc_io.input_timestamp;
+    unsigned adat_rx_channels = inuint(c_adat_rx_demux);
+    for(unsigned ch = 0; ch < adat_rx_channels; ch++){
+        adat_rx_samples[ch] = inuint(c_adat_rx_demux);
+    }
+
+    // Pack into array properly LRLRLRLR or 123412341234 etc.
+    for(int i = 0; i < asrc_channel_count; i++){
+        int idx = i + asrc_channel_count * asrc_in_counter;
+        asrc_io.input_samples[idx] = adat_rx_samples[i];
+    }
+}
 
 
 void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_change_adat_rx)
