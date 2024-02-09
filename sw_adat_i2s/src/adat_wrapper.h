@@ -24,7 +24,7 @@ typedef struct adat_state_t{
 }adat_state_t;
 
 #ifndef __XC__
-void receive_adat_samples(chanend_t c_asrc_input, asrc_in_out_t *asrc_io, unsigned asrc_channel_count, unsigned asrc_in_counter, unsigned *new_input_rate);
+unsigned receive_adat_samples(chanend_t c_asrc_input, asrc_in_out_t *asrc_io, unsigned asrc_channel_count, unsigned *new_input_rate);
 #else
 
 void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_change_adat_rx);

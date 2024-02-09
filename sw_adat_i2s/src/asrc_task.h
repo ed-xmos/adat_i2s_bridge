@@ -20,8 +20,11 @@
 
 
 typedef struct asrc_in_out_t{
-    int32_t input_samples[ASRC_N_IN_SAMPLES * MAX_ASRC_CHANNELS_TOTAL];
+    int32_t input_samples[2][ASRC_N_IN_SAMPLES * MAX_ASRC_CHANNELS_TOTAL];
+    unsigned input_write_idx;
+    int ready_flag; // TODO remove me
     int32_t input_timestamp;
+    unsigned input_frequency;
     int32_t output_samples[SRC_MAX_NUM_SAMPS_OUT * MAX_ASRC_CHANNELS_TOTAL];
     uint32_t num_output_samples;
     int32_t output_time_stamp;
