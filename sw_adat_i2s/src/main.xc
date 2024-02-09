@@ -70,7 +70,7 @@ void audio_hub( chanend c_adat_tx,
     uint32_t i2s_sample_period_count = 0;
     uint8_t measured_i2s_sample_rate_change = 1;    // Force new SR as measured
 
-    uint8_t mute = 1;
+    uint8_t mute = 0;
 
     while(1) {
         select{
@@ -95,6 +95,7 @@ void audio_hub( chanend c_adat_tx,
                 AudioHwConfig(i2s_set_sample_rate, master_clock_frequency, 0, 24, 24);
                 i2s_config.mode = I2S_MODE_I2S;
                 mute = 0;
+                reset_fifo();
             break;
 
             case i_i2s.restart_check() -> i2s_restart_t restart:
@@ -134,6 +135,7 @@ void audio_hub( chanend c_adat_tx,
                     samples[0 + ch] = asrc_out[ch];
                     // samples[4 + ch] = asrc_out[ch]; // Copy for out 5/6
                 }
+                samples[4] = asrc_out[0]; // TODO remove me
                 // printintln(samples[1]);
             break;
 
@@ -142,9 +144,8 @@ void audio_hub( chanend c_adat_tx,
                     unsigned new_sr;
                     c_sr_change :> new_sr;
                     mute = 1;
-                    master_clock_frequency = (new_sr % 48000 == 0) ? 24576000 : 22579200;
-                    // Ensure mclk is correct. This will not be needed for slave as set externally
-                    // AudioHwConfig(new_sr, master_clock_frequency, 0, 24, 24);
+                    master_clock_frequency = (new_sr % 48000 == 0) ? MCLK_48 : MCLK_441;
+
                     i2s_set_sample_rate = new_sr;
                     i2s_master_sample_rate_change = 1;
                 }
@@ -175,7 +176,6 @@ int main(void) {
                 adat_rx_demux(c_adat_rx, c_adat_rx_demux, c_smux_change_adat_rx);
                 i2c_master(i2c, 1, p_scl, p_sda, 100);
                 gpio(c_sr_change_i2s, c_smux_change_adat_rx, p_buttons, p_leds);
-
             }
         }
         on tile[1]: {

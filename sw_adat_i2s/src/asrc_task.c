@@ -18,7 +18,7 @@
 
 #include "app_config.h"
 
-int asrc_channel_count = 6;                 // Current channel count (dynamic)
+int asrc_channel_count = 8;                 // Current channel count (dynamic)
 
 
 
@@ -75,14 +75,13 @@ int calculate_job_share(int asrc_channel_count,
 }
 
 
-DECLARE_JOB(do_asrc_group, (schedule_info_t*, uint64_t, void*, unsigned, int*, asrc_ctrl_t*));
-void do_asrc_group(schedule_info_t *schedule, uint64_t fs_ratio, void *args, unsigned input_write_idx, int* num_output_samples, asrc_ctrl_t asrc_ctrl[]){
-    // printf("do_asrc_groupstart_idx: %u n_channels: %u\n", schedule->channel_start_idx, schedule->num_channels);
-    asrc_in_out_t *asrc_io = args;
+DECLARE_JOB(do_asrc_group, (schedule_info_t*, uint64_t, asrc_in_out_t*, unsigned, int*, asrc_ctrl_t*));
+void do_asrc_group(schedule_info_t *schedule, uint64_t fs_ratio, asrc_in_out_t * asrc_io, unsigned input_write_idx, int* num_output_samples, asrc_ctrl_t asrc_ctrl[]){
+
     int num_worker_channels = schedule->num_channels;
     int worker_channel_start_idx = schedule->channel_start_idx;
 
-    // Pack
+    // Pack into the frame this instance ASRC expects
     int input_samples[ASRC_N_IN_SAMPLES * MAX_ASRC_CHANNELS_TOTAL];
     for(int i = 0; i < ASRC_N_IN_SAMPLES * num_worker_channels; i++){
         int rd_idx = i % num_worker_channels + (i / num_worker_channels) * asrc_channel_count + worker_channel_start_idx;
@@ -91,90 +90,76 @@ void do_asrc_group(schedule_info_t *schedule, uint64_t fs_ratio, void *args, uns
 
     int output_samples[SRC_MAX_NUM_SAMPS_OUT * MAX_ASRC_CHANNELS_TOTAL];
 
-#if 1
     *num_output_samples = asrc_process(input_samples, output_samples, fs_ratio, asrc_ctrl);
-#else
-    // Bypass at fsin = fsout
-    *num_output_samples = ASRC_N_IN_SAMPLES;
-    memcpy(output_samples, input_samples, ASRC_N_IN_SAMPLES * sizeof(int) * num_worker_channels);
-#endif
-
-    // printintln(*num_output_samples);
-
-    // if(worker_channel_start_idx == 0) printintln(input_samples[2 + 4]);
 
     // Unpack
     for(int i = 0; i < *num_output_samples * num_worker_channels; i++){
         int wr_idx = i % num_worker_channels + (i / num_worker_channels) * asrc_channel_count + worker_channel_start_idx;
         asrc_io->output_samples[wr_idx] = output_samples[i];
     }
-
-    // putchar('a');
-    // printf("fs_ratio: %f\n", (float)fs_ratio / (float)(1ULL<<60));
-    // printintln(*num_output_samples);
 }
 
 
 // about 55 ticks ticks overhead to fork and join at 120MIPS 8 channels/ 4 threads
-int par_asrc(int num_jobs, schedule_info_t schedule[], uint64_t fs_ratio, void * args, unsigned input_write_idx, asrc_ctrl_t asrc_ctrl[MAX_ASRC_THREADS][SRC_MAX_SRC_CHANNELS_PER_INSTANCE]){
+int par_asrc(int num_jobs, schedule_info_t schedule[], uint64_t fs_ratio, asrc_in_out_t * asrc_io, unsigned input_write_idx, asrc_ctrl_t asrc_ctrl[MAX_ASRC_THREADS][SRC_MAX_SRC_CHANNELS_PER_INSTANCE]){
     int num_output_samples = 0;
 
     switch(num_jobs){
         case 0:
-            return 0;
+            return 0; // Nothing to do
         break;
         case 1:
             PAR_JOBS(
-                PJOB(do_asrc_group, (&schedule[0], fs_ratio, args, input_write_idx, &num_output_samples, asrc_ctrl[0]))
+                PJOB(do_asrc_group, (&schedule[0], fs_ratio, asrc_io, input_write_idx, &num_output_samples, asrc_ctrl[0]))
             );
         break;
 #if MAX_ASRC_THREADS > 1
         case 2:
             PAR_JOBS(
-                PJOB(do_asrc_group, (&schedule[0], fs_ratio, args, input_write_idx, &num_output_samples, asrc_ctrl[0])),
-                PJOB(do_asrc_group, (&schedule[1], fs_ratio, args, input_write_idx, &num_output_samples, asrc_ctrl[1]))
+                PJOB(do_asrc_group, (&schedule[0], fs_ratio, asrc_io, input_write_idx, &num_output_samples, asrc_ctrl[0])),
+                PJOB(do_asrc_group, (&schedule[1], fs_ratio, asrc_io, input_write_idx, &num_output_samples, asrc_ctrl[1]))
             );
         break;
 #endif
 #if MAX_ASRC_THREADS > 2
         case 3:
             PAR_JOBS(
-                PJOB(do_asrc_group, (&schedule[0], fs_ratio, args, input_write_idx, &num_output_samples, asrc_ctrl[0])),
-                PJOB(do_asrc_group, (&schedule[1], fs_ratio, args, input_write_idx, &num_output_samples, asrc_ctrl[1])),
-                PJOB(do_asrc_group, (&schedule[2], fs_ratio, args, input_write_idx, &num_output_samples, asrc_ctrl[2]))
+                PJOB(do_asrc_group, (&schedule[0], fs_ratio, asrc_io, input_write_idx, &num_output_samples, asrc_ctrl[0])),
+                PJOB(do_asrc_group, (&schedule[1], fs_ratio, asrc_io, input_write_idx, &num_output_samples, asrc_ctrl[1])),
+                PJOB(do_asrc_group, (&schedule[2], fs_ratio, asrc_io, input_write_idx, &num_output_samples, asrc_ctrl[2]))
             );
         break;
 #endif
 #if MAX_ASRC_THREADS > 3
         case 4:
             PAR_JOBS(
-                PJOB(do_asrc_group, (&schedule[0], fs_ratio, args, input_write_idx, &num_output_samples, asrc_ctrl[0])),
-                PJOB(do_asrc_group, (&schedule[1], fs_ratio, args, input_write_idx, &num_output_samples, asrc_ctrl[1])),
-                PJOB(do_asrc_group, (&schedule[2], fs_ratio, args, input_write_idx, &num_output_samples, asrc_ctrl[2])),
-                PJOB(do_asrc_group, (&schedule[3], fs_ratio, args, input_write_idx, &num_output_samples, asrc_ctrl[3]))
+                PJOB(do_asrc_group, (&schedule[0], fs_ratio, asrc_io, input_write_idx, &num_output_samples, asrc_ctrl[0])),
+                PJOB(do_asrc_group, (&schedule[1], fs_ratio, asrc_io, input_write_idx, &num_output_samples, asrc_ctrl[1])),
+                PJOB(do_asrc_group, (&schedule[2], fs_ratio, asrc_io, input_write_idx, &num_output_samples, asrc_ctrl[2])),
+                PJOB(do_asrc_group, (&schedule[3], fs_ratio, asrc_io, input_write_idx, &num_output_samples, asrc_ctrl[3]))
             );
         break;
 #endif
 #if MAX_ASRC_THREADS > 4
         case 5:
             PAR_JOBS(
-                PJOB(do_asrc_group, (&schedule[0], fs_ratio, args, input_write_idx, &num_output_samples, asrc_ctrl[0])),
-                PJOB(do_asrc_group, (&schedule[1], fs_ratio, args, input_write_idx, &num_output_samples, asrc_ctrl[1])),
-                PJOB(do_asrc_group, (&schedule[2], fs_ratio, args, input_write_idx, &num_output_samples, asrc_ctrl[2])),
-                PJOB(do_asrc_group, (&schedule[3], fs_ratio, args, input_write_idx, &num_output_samples, asrc_ctrl[3])),
-                PJOB(do_asrc_group, (&schedule[4], fs_ratio, args, input_write_idx, &num_output_samples, asrc_ctrl[4]))
+                PJOB(do_asrc_group, (&schedule[0], fs_ratio, asrc_io, input_write_idx, &num_output_samples, asrc_ctrl[0])),
+                PJOB(do_asrc_group, (&schedule[1], fs_ratio, asrc_io, input_write_idx, &num_output_samples, asrc_ctrl[1])),
+                PJOB(do_asrc_group, (&schedule[2], fs_ratio, asrc_io, input_write_idx, &num_output_samples, asrc_ctrl[2])),
+                PJOB(do_asrc_group, (&schedule[3], fs_ratio, asrc_io, input_write_idx, &num_output_samples, asrc_ctrl[3])),
+                PJOB(do_asrc_group, (&schedule[4], fs_ratio, asrc_io, input_write_idx, &num_output_samples, asrc_ctrl[4]))
             );
         break;
 #endif
 #if MAX_ASRC_THREADS > 5
         case 6:
             PAR_JOBS(
-                PJOB(do_asrc_group, (&schedule[0], fs_ratio, args, input_write_idx, &num_output_samples, asrc_ctrl[0])),
-                PJOB(do_asrc_group, (&schedule[1], fs_ratio, args, input_write_idx, &num_output_samples, asrc_ctrl[1])),
-                PJOB(do_asrc_group, (&schedule[2], fs_ratio, args, input_write_idx, &num_output_samples, asrc_ctrl[2])),
-                PJOB(do_asrc_group, (&schedule[3], fs_ratio, args, input_write_idx, &num_output_samples, asrc_ctrl[3])),
-                PJOB(do_asrc_group, (&schedule[4], fs_ratio, args, input_write_idx, &num_output_samples, asrc_ctrl[4])),
-                PJOB(do_asrc_group, (&schedule[5], fs_ratio, args, input_write_idx, &num_output_samples, asrc_ctrl[5]))
+                PJOB(do_asrc_group, (&schedule[0], fs_ratio, asrc_io, input_write_idx, &num_output_samples, asrc_ctrl[0])),
+                PJOB(do_asrc_group, (&schedule[1], fs_ratio, asrc_io, input_write_idx, &num_output_samples, asrc_ctrl[1])),
+                PJOB(do_asrc_group, (&schedule[2], fs_ratio, asrc_io, input_write_idx, &num_output_samples, asrc_ctrl[2])),
+                PJOB(do_asrc_group, (&schedule[3], fs_ratio, asrc_io, input_write_idx, &num_output_samples, asrc_ctrl[3])),
+                PJOB(do_asrc_group, (&schedule[4], fs_ratio, asrc_io, input_write_idx, &num_output_samples, asrc_ctrl[4])),
+                PJOB(do_asrc_group, (&schedule[5], fs_ratio, asrc_io, input_write_idx, &num_output_samples, asrc_ctrl[5]))
             );
         break;
 #endif
@@ -199,6 +184,10 @@ int pull_samples(int32_t *samples, int32_t consume_timestamp){
     // printintln(samples[0]);
     // printf("pull @ %ld\n", consume_timestamp);
     return asrc_channel_count;
+}
+
+void reset_fifo(void){
+    asynchronous_fifo_reset_consumer(fifo);
 }
 
 extern uint32_t current_i2s_rate;
@@ -310,10 +299,8 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
 
         while(!audio_format_change){
 
-
+            ready_flag = 1; // Signal we are ready to consume a frame of input samples
             // Wait for block of samples
-
-            ready_flag = 1;
             unsigned input_write_idx = (unsigned)chanend_in_byte(c_buff_idx);
             unsigned new_input_rate = asrc_io.input_frequency;
 
@@ -357,6 +344,7 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
             }
         } // while !audio_format_change
         ready_flag = 0;
+        asynchronous_fifo_reset_producer(fifo);
     } // while 1
 }
 
