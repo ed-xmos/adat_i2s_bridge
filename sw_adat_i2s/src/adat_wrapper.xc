@@ -2,9 +2,41 @@
 
 #include "adat_rx.h"
 
-#include "adat.h"
+#include "adat_wrapper.h"
 #include "utils.h"
 #include "app_config.h"
+
+// Called from a different tile hence channel usage
+unsigned receive_adat_samples(chanend c_adat_rx_demux, asrc_in_out_t &asrc_io, unsigned asrc_channel_count, unsigned &new_input_rate){
+    static unsigned asrc_in_counter = 0;
+    unsigned input_write_idx = asrc_io.input_write_idx;
+
+    // demuxed ADAT Rx
+    int32_t adat_rx_samples[8] = {0};
+
+    // Get ADAT samples from channel
+    timer tmr;
+    new_input_rate = inuint(c_adat_rx_demux);
+    tmr :> asrc_io.input_timestamp;
+    unsigned adat_rx_channels = inuint(c_adat_rx_demux);
+
+    #pragma unsafe arrays
+    for(unsigned ch = 0; ch < adat_rx_channels; ch++){
+        adat_rx_samples[ch] = inuint(c_adat_rx_demux);
+    }
+
+    // Pack into array properly LRLRLRLR or 123412341234 etc.
+    for(int i = 0; i < asrc_channel_count; i++){
+        int idx = i + asrc_channel_count * asrc_in_counter;
+        asrc_io.input_samples[input_write_idx][idx] = adat_rx_samples[i];
+    }
+
+    if(++asrc_in_counter == SRC_N_IN_SAMPLES){
+        asrc_in_counter = 0;
+    }
+
+    return asrc_in_counter;
+}
 
 
 void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_change_adat_rx)
@@ -25,6 +57,8 @@ void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_ch
 
     tmr :> rate_measurement_trigger;
     rate_measurement_trigger += rate_measurement_period;
+
+    set_core_fast_mode_on();
 
     while(1)
     {
@@ -64,6 +98,8 @@ void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_ch
                                 adat_state_idx ^= 1;
                                 smux_setting = new_smux_setting;
                                 sample_period_count++;
+                                // printchar('+');
+
                             }
                         break;
 
@@ -151,6 +187,7 @@ void adat_tx_setup_task(chanend c_adat_tx, clock mck_blk, in port p_mclk, buffer
 
 
 void adat_rx_task(chanend c_adat_rx, buffered in port:32 p_adat_in) {
+    delay_milliseconds(1000); //TODO remove me. Waiting for ASRC to consume..
     while(1) {
         adatReceiver48000(p_adat_in, c_adat_rx);
         printstr("adatrx restart\n");

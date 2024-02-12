@@ -1,9 +1,10 @@
 #include <platform.h>
 #include <xs1.h>
 #include <stdint.h>
+#include <print.h>
 
 #include "app_config.h"
-#include "adat.h"
+#include "adat_wrapper.h"
 
 
 typedef struct button_state_t{

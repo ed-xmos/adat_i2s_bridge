@@ -10,7 +10,7 @@
 #include "adat_rx.h"
 #include "adat_tx.h"
 
-#include "adat.h"
+#include "adat_wrapper.h"
 extern "C"{
     #include "asrc_task.h"
 }
@@ -37,19 +37,14 @@ on tile[0]: in port p_buttons =                             XS1_PORT_4E;
 on tile[0]: out port p_leds =                               XS1_PORT_4F;
 
 // I2S resources
-#define NUM_I2S_DAC_LINES                                   2
-#define NUM_I2S_ADC_LINES                                   1
-#define I2S_DATA_BITS                                       32
 on tile[1]: in port p_mclk =                                PORT_MCLK_IN;
 on tile[1]: buffered out port:32 p_lrclk =                  PORT_I2S_LRCLK;
 on tile[1]: out port p_bclk =                               PORT_I2S_BCLK;
-on tile[1]: buffered out port:32 p_dac[NUM_I2S_DAC_LINES] = {PORT_I2S_DAC0, PORT_I2S_DAC1};
+// on tile[1]: buffered out port:32 p_dac[NUM_I2S_DAC_LINES] = {PORT_I2S_DAC0, PORT_I2S_DAC1, PORT_I2S_DAC2, PORT_I2S_DAC3};
+on tile[1]: buffered out port:32 p_dac[NUM_I2S_DAC_LINES] = {PORT_I2S_DAC0, PORT_I2S_DAC1, PORT_I2S_DAC2};
 on tile[1]: buffered in port:32 p_adc[NUM_I2S_ADC_LINES] =  {PORT_I2S_ADC0};
 on tile[1]: clock bclk =                                    XS1_CLKBLK_1;
 
-
-// in asrc_task.c
-extern "C" {void pull_samples(int32_t *samples, int32_t consume_timestamp);}
 
 // Global to allow asrc_task to poll it
 uint32_t current_i2s_rate = 0;                  // Set to invalid
@@ -75,7 +70,7 @@ void audio_hub( chanend c_adat_tx,
     uint32_t i2s_sample_period_count = 0;
     uint8_t measured_i2s_sample_rate_change = 1;    // Force new SR as measured
 
-    uint8_t mute = 1;
+    uint8_t mute = 0;
 
     while(1) {
         select{
@@ -100,6 +95,7 @@ void audio_hub( chanend c_adat_tx,
                 AudioHwConfig(i2s_set_sample_rate, master_clock_frequency, 0, 24, 24);
                 i2s_config.mode = I2S_MODE_I2S;
                 mute = 0;
+                reset_fifo();
             break;
 
             case i_i2s.restart_check() -> i2s_restart_t restart:
@@ -128,14 +124,19 @@ void audio_hub( chanend c_adat_tx,
             case i_i2s.send(size_t num_out, int32_t samples[num_out]):
                 int32_t consume_timestamp;
                 tmr :> consume_timestamp;
-                // samples[0] = adat_rx_samples[0];
-                // samples[1] = adat_rx_samples[1];
-                int32_t asrc_out;
-                pull_samples(&asrc_out, consume_timestamp);
-                samples[0] = asrc_out;
-                samples[1] = 0;
-                samples[2] = asrc_out;
-                samples[3] = 0;
+
+                for(int ch = 0; ch < num_out; ch++){
+                    samples[ch] = 0;
+                }
+
+                int32_t asrc_out[8]; // TODO make max ASRC channels
+                int asrc_channel_count = pull_samples(asrc_out, consume_timestamp);
+                for(int ch = 0; ch < NUM_I2S_DAC_LINES * 2; ch++){
+                    samples[0 + ch] = asrc_out[ch];
+                    // samples[4 + ch] = asrc_out[ch]; // Copy for out 5/6
+                }
+                samples[4] = asrc_out[0]; // TODO remove me
+                // printintln(samples[1]);
             break;
 
             case c_sr_change :> unsigned id:
@@ -143,9 +144,8 @@ void audio_hub( chanend c_adat_tx,
                     unsigned new_sr;
                     c_sr_change :> new_sr;
                     mute = 1;
-                    master_clock_frequency = (new_sr % 48000 == 0) ? 24576000 : 22579200;
-                    // Ensure mclk is correct. This will not be needed for slave as set externally
-                    // AudioHwConfig(new_sr, master_clock_frequency, 0, 24, 24);
+                    master_clock_frequency = (new_sr % 48000 == 0) ? MCLK_48 : MCLK_441;
+
                     i2s_set_sample_rate = new_sr;
                     i2s_master_sample_rate_change = 1;
                 }
@@ -176,7 +176,6 @@ int main(void) {
                 adat_rx_demux(c_adat_rx, c_adat_rx_demux, c_smux_change_adat_rx);
                 i2c_master(i2c, 1, p_scl, p_sda, 100);
                 gpio(c_sr_change_i2s, c_smux_change_adat_rx, p_buttons, p_leds);
-
             }
         }
         on tile[1]: {
