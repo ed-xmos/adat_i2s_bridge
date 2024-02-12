@@ -17,6 +17,9 @@ extern "C"{
 #include "utils.h"
 #include "app_config.h"
 
+// We will switch to this and enable distributable when I2S slave
+#define POLL_CONTROL_IN_SEND 1
+
 
 extern void board_setup(void);
 extern void AudioHwInit(void);
@@ -47,9 +50,11 @@ on tile[1]: clock bclk =                                    XS1_CLKBLK_1;
 
 
 // Global to allow asrc_task to poll it
-uint32_t current_i2s_rate = 0;                  // Set to invalid
+uint32_t current_i2s_rate = 0;                  // Set to invalid initially
 
-
+#if POLL_CONTROL_IN_SEND
+[[distributable]]
+#endif
 void audio_hub( chanend c_adat_tx,
                 server i2s_frame_callback_if i_i2s,
                 chanend c_sr_change) {
@@ -70,39 +75,29 @@ void audio_hub( chanend c_adat_tx,
     uint32_t i2s_sample_period_count = 0;
     uint8_t measured_i2s_sample_rate_change = 1;    // Force new SR as measured
 
-    uint8_t mute = 0;
+    uint32_t mute = 0;
+    int32_t latest_timestamp = 0; 
+    int32_t last_timestamp = 0;
 
     while(1) {
         select{
-            case tmr when timerafter(rate_measurement_trigger) :> int _:
-                // Measure I2S
-                unsigned samples_per_second = i2s_sample_period_count * measurement_rate_hz;
-                unsigned measured_i2s_rate = get_normal_sample_rate(samples_per_second);
-                i2s_sample_period_count = 0;
-                if((measured_i2s_rate != 0) && (current_i2s_rate != measured_i2s_rate)){
-                    mute = 1;
-                    measured_i2s_sample_rate_change = 1;
-                    current_i2s_rate = measured_i2s_rate;
-                    // asrc_input.nominal_output_rate = measured_i2s_rate;
-                    printstrln("Measured I2S sample rate change: "); printintln(measured_i2s_rate);
-                }
-                rate_measurement_trigger += rate_measurement_period;
-            break;
-
             case i_i2s.init(i2s_config_t &?i2s_config, tdm_config_t &?tdm_config):
                 i2s_config.mclk_bclk_ratio = (master_clock_frequency / (i2s_set_sample_rate*2*I2S_DATA_BITS));
                 printstr("i2s init: "); printintln(i2s_set_sample_rate);
+                mute = i2s_set_sample_rate >> 2; // 250ms
                 AudioHwConfig(i2s_set_sample_rate, master_clock_frequency, 0, 24, 24);
                 i2s_config.mode = I2S_MODE_I2S;
-                mute = 0;
                 reset_fifo();
             break;
 
             case i_i2s.restart_check() -> i2s_restart_t restart:
+                // This if the first callback so the least jitter measurement of timestamp should be here
+                tmr :> latest_timestamp;
+
                 // Inform the I2S slave whether it should restart or exit
                 i2s_sample_period_count++;
                 if(measured_i2s_sample_rate_change){
-                    printstrln("measured_i2s_sample_rate_change");
+                    printstr("measured_i2s_sample_rate_change: "); printintln(current_i2s_rate);
                     measured_i2s_sample_rate_change = 0;
                     restart = I2S_RESTART;
                     break;
@@ -114,7 +109,6 @@ void audio_hub( chanend c_adat_tx,
                     break;
                 }
                 restart = I2S_NO_RESTART;
-                // printchar('i');
             break;
 
             case i_i2s.receive(size_t num_in, int32_t samples[num_in]):
@@ -122,28 +116,61 @@ void audio_hub( chanend c_adat_tx,
             break;
 
             case i_i2s.send(size_t num_out, int32_t samples[num_out]):
-                int32_t consume_timestamp;
-                tmr :> consume_timestamp;
-
                 for(int ch = 0; ch < num_out; ch++){
                     samples[ch] = 0;
                 }
 
                 int32_t asrc_out[8]; // TODO make max ASRC channels
-                int asrc_channel_count = pull_samples(asrc_out, consume_timestamp);
-                for(int ch = 0; ch < NUM_I2S_DAC_LINES * 2; ch++){
-                    samples[0 + ch] = asrc_out[ch];
-                    // samples[4 + ch] = asrc_out[ch]; // Copy for out 5/6
+                int asrc_channel_count = pull_samples(asrc_out, latest_timestamp);
+                if(mute > 0){
+                    for(int ch = 0; ch < num_out; ch++){
+                        samples[ch] = 0;
+                    }
+                    mute--;
                 }
-                samples[4] = asrc_out[0]; // TODO remove me
-                // printintln(samples[1]);
+                else {
+                    for(int ch = 0; ch < num_out; ch++){
+                        samples[ch] = asrc_out[ch];
+                    }
+                    samples[4] = asrc_out[0]; // TODO remove me. Just here for a signal copy.
+                }
+
+                uint32_t measured_i2s_rate = calc_sample_rate(&last_timestamp, latest_timestamp, current_i2s_rate, &i2s_sample_period_count);
+                if((measured_i2s_rate != 0) && (current_i2s_rate != measured_i2s_rate)){
+                    measured_i2s_sample_rate_change = 1;
+                    current_i2s_rate = measured_i2s_rate;
+                }
+#if POLL_CONTROL_IN_SEND
+                select{
+                    case c_sr_change :> unsigned id:
+                        if(id == IO_I2S){
+                            unsigned new_sr;
+                            c_sr_change :> new_sr;
+                            master_clock_frequency = (new_sr % 48000 == 0) ? MCLK_48 : MCLK_441;
+
+                            i2s_set_sample_rate = new_sr;
+                            i2s_master_sample_rate_change = 1;
+                        }
+                        if(id == IO_ADAT_TX){
+                            unsigned new_smux;
+                            c_sr_change :> new_smux;
+                            printstr("adat tx smux: ");printintln(new_smux);
+                        }
+                    break;
+                    // Fallthrough
+                    default:
+                    break;
+                }
+#endif
+
             break;
 
+#if !POLL_CONTROL_IN_SEND
+            // This will dissappear when we move to slave
             case c_sr_change :> unsigned id:
                 if(id == IO_I2S){
                     unsigned new_sr;
                     c_sr_change :> new_sr;
-                    mute = 1;
                     master_clock_frequency = (new_sr % 48000 == 0) ? MCLK_48 : MCLK_441;
 
                     i2s_set_sample_rate = new_sr;
@@ -155,6 +182,7 @@ void audio_hub( chanend c_adat_tx,
                     printstr("adat tx smux: ");printintln(new_smux);
                 }
             break;
+#endif
         } // select
     }// while(1)
 }
@@ -187,9 +215,12 @@ int main(void) {
             adat_tx_setup_task(c_adat_tx, mck_blk, p_mclk, p_adat_out);
 
             par {
+#if POLL_CONTROL_IN_SEND
+                [[distribute]]
+#endif
                 audio_hub(c_adat_tx, i_i2s, c_sr_change_i2s);
-                adat_tx_port(c_adat_tx, p_adat_out);
                 i2s_frame_master(i_i2s, p_dac, NUM_I2S_DAC_LINES, p_adc, NUM_I2S_ADC_LINES, I2S_DATA_BITS, p_bclk, p_lrclk, p_mclk, bclk);
+                adat_tx_port(c_adat_tx, p_adat_out);
                 asrc_processor(c_adat_rx_demux);
             }
         }
