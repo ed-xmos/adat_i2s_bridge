@@ -78,7 +78,7 @@ typedef struct schedule_info_t{
     int channel_start_idx;
 }schedule_info_t;
 
-
+// Generates a schedule based on the number of channels of ASRC needed vs available threads
 int calculate_job_share(int asrc_channel_count,
                         schedule_info_t *schedule){
     int channels_per_first_job = (asrc_channel_count + MAX_ASRC_THREADS - 1) / MAX_ASRC_THREADS; // Rounded up channels per max jobs
@@ -93,8 +93,6 @@ int calculate_job_share(int asrc_channel_count,
         num_jobs++;
     };
     schedule[num_jobs - 1].num_channels = channels_per_last_job;
-
-    // printf("num_jobs = %u channels_per_job: %u, channels_per_last_job: %u\n", num_jobs, channels_per_first_job, channels_per_last_job);
 
     return num_jobs;
 }
@@ -124,7 +122,7 @@ void do_asrc_group(schedule_info_t *schedule, uint64_t fs_ratio, asrc_in_out_t *
     }
 }
 
-
+// Wrapper which forks and joins the parallel ASRC worker functions
 // about 55 ticks ticks overhead to fork and join at 120MIPS 8 channels/ 4 threads
 int par_asrc(int num_jobs, schedule_info_t schedule[], uint64_t fs_ratio, asrc_in_out_t * asrc_io, unsigned input_write_idx, asrc_ctrl_t asrc_ctrl[MAX_ASRC_THREADS][SRC_MAX_SRC_CHANNELS_PER_INSTANCE]){
     int num_output_samples = 0;
@@ -196,9 +194,8 @@ int par_asrc(int num_jobs, schedule_info_t schedule[], uint64_t fs_ratio, asrc_i
 }
 
 
-
 ///// FIFO declaration. Global to allow producer and consumer to access it
-#define FIFO_LENGTH   100
+#define FIFO_LENGTH   50
 int64_t array[ASYNCHRONOUS_FIFO_INT64_ELEMENTS(FIFO_LENGTH, MAX_ASRC_CHANNELS_TOTAL)];
 asynchronous_fifo_t *fifo = (asynchronous_fifo_t *)array;
 
@@ -209,6 +206,7 @@ int pull_samples(int32_t *samples, int32_t consume_timestamp){
     return asrc_channel_count;
 }
 
+// Consumer side FIFO reset
 void reset_fifo(void){
     asynchronous_fifo_reset_consumer(fifo);
     memset(fifo->buffer, 0, fifo->channel_count * fifo->max_fifo_depth * sizeof(int));
@@ -217,9 +215,10 @@ void reset_fifo(void){
 // Set by audio_hub
 extern uint32_t current_i2s_rate;
 
-// This is fired each time a sample is received
+// This is fired each time a sample is received (triggered by first channel token)
 DEFINE_INTERRUPT_CALLBACK(ASRC_ISR_GRP, asrc_samples_rx_isr_handler, app_data)
 {
+    // Extract pointers and resource IDs
     isr_ctx_t *isr_ctx = app_data;
     chanend_t c_asrc_input = isr_ctx->c_asrc_input;
     chanend_t c_buff_idx = isr_ctx->c_buff_idx;
@@ -236,18 +235,16 @@ DEFINE_INTERRUPT_CALLBACK(ASRC_ISR_GRP, asrc_samples_rx_isr_handler, app_data)
 }
 
 
-
-
-// DECLARE_INTERRUPT_PERMITTED(void, asrc_processor_, chanend_t c_asrc_input);
+// Main ASRC task. Defined as ISR friendly
 DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc_input, chanend_t c_buff_idx){
-// void asrc_processor_(chanend_t c_asrc_input){
+    
     uint32_t input_frequency = 48000;
     uint32_t output_frequency = 48000;
 
     asrc_in_out_t asrc_io = {{{0}}};
 
-
-    static int interpolation_ticks_2D[6][6] = {
+    // Used for calculating the timestamp interpolation
+    const int interpolation_ticks_2D[6][6] = {
         {  2268, 2268, 2268, 2268, 2268, 2268},
         {  2083, 2083, 2083, 2083, 2083, 2083},
         {  2268, 2268, 1134, 1134, 1134, 1134},
@@ -256,13 +253,16 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
         {  2083, 2083, 1042, 1042,  521,  521}
     };
     
+    // Setup a pointer to a struct so the ISR can access these elements
     isr_ctx_t isr_ctx = {c_asrc_input, c_buff_idx, &asrc_io};
 
+    // Enable interrup on channel receive
     triggerable_setup_interrupt_callback(c_asrc_input, &isr_ctx, INTERRUPT_CALLBACK(asrc_samples_rx_isr_handler));
     triggerable_enable_trigger(c_asrc_input);
     interrupt_unmask_all();
 
     while(1){
+        // Flag to indicate breaking loop and re-init
         int audio_format_change = 0;
 
         // Frequency info
@@ -275,7 +275,6 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
         asynchronous_fifo_init(fifo, asrc_channel_count, FIFO_LENGTH);
         asynchronous_fifo_init_PID_fs_codes(fifo, inputFsCode, outputFsCode);
         printf("FIFO init channels: %d\n", asrc_channel_count);
-
 
         // SCHEDULER init
         schedule_info_t schedule[MAX_ASRC_THREADS];
@@ -334,19 +333,21 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
 
             fs_ratio = (((int64_t)ideal_fs_ratio) << 32) + (error * (int64_t) ideal_fs_ratio);
 
+            // Watermark for ASRC peak execution time
             int32_t t1 = get_reference_time();
             if(t1 - t0 > asrc_peak_processing_time){
                 asrc_peak_processing_time = t1 - t0;
                 printintln(asrc_peak_processing_time);
             }
 
-            // Remove me. This is here to monitor PID loop convergence during dev
+            // TODO Remove me. This is here to monitor PID loop convergence during dev
             static int print_counter = 0;
             if(++print_counter == 50000){
                 printf("depth: %lu\n", (fifo->write_ptr - fifo->read_ptr + fifo->max_fifo_depth) % fifo->max_fifo_depth);
                 print_counter = 0;
             }
 
+            // Check for rate changes
             if(new_input_rate != input_frequency){
                 if(new_input_rate != 0){
                     input_frequency = new_input_rate;
@@ -364,10 +365,10 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
 
         // We have broken out of the loop due to a format change
         asrc_io.ready_flag = 0;
-        asynchronous_fifo_reset_producer(fifo);
     } // while 1
 }
 
+// Wrapper to setup ISR->task signalling chanend and use ISR friendly call to function 
 void asrc_processor(chanend_t c_asrc_input){
     // We use a single chanend to send the buffer IDX from the ISR of this task back to asrc task and sync
     chanend_t c_buff_idx = chanend_alloc();

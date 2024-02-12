@@ -15,14 +15,14 @@
 #define     SRC_MAX_NUM_SAMPS_OUT               (SRC_N_OUT_IN_RATIO_MAX * SRC_N_IN_SAMPLES)
 
 /* Stuff that must be defined for lib_src */
-#define     ASRC_N_IN_SAMPLES               (SRC_N_IN_SAMPLES) /* Used by SRC_STACK_LENGTH_MULT in src_mrhf_asrc.h */
-#define     ASRC_N_CHANNELS                 (SRC_MAX_SRC_CHANNELS_PER_INSTANCE) /* Used by SRC_STACK_LENGTH_MULT in src_mrhf_asrc.h */
+#define     ASRC_N_IN_SAMPLES                   (SRC_N_IN_SAMPLES) /* Used by SRC_STACK_LENGTH_MULT in src_mrhf_asrc.h */
+#define     ASRC_N_CHANNELS                     (SRC_MAX_SRC_CHANNELS_PER_INSTANCE) /* Used by SRC_STACK_LENGTH_MULT in src_mrhf_asrc.h */
 
 
 typedef struct asrc_in_out_t{
-    int32_t input_samples[2][ASRC_N_IN_SAMPLES * MAX_ASRC_CHANNELS_TOTAL];
+    int32_t input_samples[2][ASRC_N_IN_SAMPLES * MAX_ASRC_CHANNELS_TOTAL]; // Double buffer input array
     unsigned input_write_idx;
-    int ready_flag; // TODO remove me
+    int ready_flag;
     int32_t input_timestamp;
     unsigned input_frequency;
     int32_t output_samples[SRC_MAX_NUM_SAMPS_OUT * MAX_ASRC_CHANNELS_TOTAL];
