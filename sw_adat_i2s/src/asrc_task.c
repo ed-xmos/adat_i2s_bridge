@@ -18,10 +18,10 @@
 
 #include "app_config.h"
 
-int asrc_channel_count = 8;                 // Current channel count (dynamic)
+unsigned asrc_channel_count = 8;                 // Current channel count (dynamic). Needs to be global so can be read by pull_samples
 
  __attribute__ ((weak))
-unsigned receive_asrc_input_samples(chanend c_asrc_input_samples, asrc_in_out_t *asrc_io, unsigned asrc_channel_count, unsigned *new_input_rate){
+unsigned receive_asrc_input_samples(chanend c_asrc_input_samples, asrc_in_out_t *asrc_io, unsigned *asrc_channel_count, unsigned *new_input_rate){
     printstrln("ERROR: Please define an appropriate ASRC receive samples function.");
     while(1);
 
@@ -33,8 +33,8 @@ unsigned receive_asrc_input_samples(chanend c_asrc_input_samples, asrc_in_out_t 
     new_input_rate = inuint(c_asrc_input_samples);
 
     // Pack into array properly LRLRLRLR or 123412341234 etc.
-    for(int i = 0; i < asrc_channel_count; i++){
-        int idx = i + asrc_channel_count * asrc_in_counter;
+    for(int i = 0; i < *asrc_channel_count; i++){
+        int idx = i + *asrc_channel_count * asrc_in_counter;
         asrc_io.input_samples[input_write_idx][idx] = adat_rx_samples[i];
     }
 
@@ -111,11 +111,12 @@ void do_asrc_group(schedule_info_t *schedule, uint64_t fs_ratio, asrc_in_out_t *
         input_samples[i] = asrc_io->input_samples[input_write_idx][rd_idx];
     }
 
+    // Declare op buffer suitable for this instance
     int output_samples[SRC_MAX_NUM_SAMPS_OUT * MAX_ASRC_CHANNELS_TOTAL];
-
+    // Do the ASRC
     *num_output_samples = asrc_process(input_samples, output_samples, fs_ratio, asrc_ctrl);
 
-    // Unpack
+    // Unpack to combined output frame
     for(int i = 0; i < *num_output_samples * num_worker_channels; i++){
         int wr_idx = i % num_worker_channels + (i / num_worker_channels) * asrc_channel_count + worker_channel_start_idx;
         asrc_io->output_samples[wr_idx] = output_samples[i];
@@ -195,11 +196,11 @@ int par_asrc(int num_jobs, schedule_info_t schedule[], uint64_t fs_ratio, asrc_i
 
 
 ///// FIFO declaration. Global to allow producer and consumer to access it
-#define FIFO_LENGTH   50
+#define FIFO_LENGTH   (SRC_MAX_NUM_SAMPS_OUT * 3) // Half full is target so * 2 but we need wiggle room at startup
 int64_t array[ASYNCHRONOUS_FIFO_INT64_ELEMENTS(FIFO_LENGTH, MAX_ASRC_CHANNELS_TOTAL)];
 asynchronous_fifo_t *fifo = (asynchronous_fifo_t *)array;
 
-
+// Called from consumer side
 int pull_samples(int32_t *samples, int32_t consume_timestamp){
     asynchronous_fifo_consume(fifo, samples, consume_timestamp);
 
@@ -225,12 +226,12 @@ DEFINE_INTERRUPT_CALLBACK(ASRC_ISR_GRP, asrc_samples_rx_isr_handler, app_data)
     asrc_in_out_t *asrc_io = isr_ctx->asrc_io;
     
     // Always consume samples so we don't apply backpressure
-    unsigned asrc_in_counter = receive_asrc_input_samples(c_asrc_input, asrc_io, asrc_channel_count, &(asrc_io->input_frequency));
+    unsigned asrc_in_counter = receive_asrc_input_samples(c_asrc_input, asrc_io, &asrc_channel_count, &(asrc_io->input_frequency));
 
     // Only forward on to ASRC if it is ready (to avoid deadlock)
     if(asrc_in_counter == 0 && asrc_io->ready_flag){
         chanend_out_byte(c_buff_idx, (uint8_t)asrc_io->input_write_idx);
-        asrc_io->input_write_idx ^= 1;
+        asrc_io->input_write_idx ^= 1; // Swap buffers
     }
 }
 
@@ -325,6 +326,8 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
             // Wait for block of samples
             unsigned input_write_idx = (unsigned)chanend_in_byte(c_buff_idx);
             unsigned new_input_rate = asrc_io.input_frequency;
+            unsigned new_asrc_channel_count = asrc_io.input_channel_count;
+            printintln(asrc_io.input_samples[0][0]);
 
             int32_t t0 = get_reference_time();
             int num_output_samples = par_asrc(num_jobs, schedule, fs_ratio, &asrc_io, input_write_idx, sASRCCtrl);
@@ -347,7 +350,7 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
                 print_counter = 0;
             }
 
-            // Check for rate changes
+            // Check for format changes
             if(new_input_rate != input_frequency){
                 if(new_input_rate != 0){
                     input_frequency = new_input_rate;
@@ -361,6 +364,12 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
                     audio_format_change = 1;
                 }
             }
+
+            if(new_asrc_channel_count != asrc_channel_count){
+                asrc_channel_count = new_asrc_channel_count;
+                audio_format_change = 1;
+            }
+
         } // while !audio_format_change
 
         // We have broken out of the loop due to a format change

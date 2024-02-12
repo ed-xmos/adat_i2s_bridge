@@ -7,7 +7,7 @@
 #include "app_config.h"
 
 // Called from a different tile hence channel usage
-unsigned receive_asrc_input_samples(chanend c_adat_rx_demux, asrc_in_out_t &asrc_io, unsigned asrc_channel_count, unsigned &new_input_rate){
+unsigned receive_asrc_input_samples(chanend c_adat_rx_demux, asrc_in_out_t &asrc_io, unsigned &asrc_channel_count, unsigned &new_input_rate){
     static unsigned asrc_in_counter = 0;
     unsigned input_write_idx = asrc_io.input_write_idx;
 
@@ -18,10 +18,10 @@ unsigned receive_asrc_input_samples(chanend c_adat_rx_demux, asrc_in_out_t &asrc
     timer tmr;
     new_input_rate = inuint(c_adat_rx_demux);
     tmr :> asrc_io.input_timestamp;
-    unsigned adat_rx_channels = inuint(c_adat_rx_demux);
+    asrc_io.input_channel_count = inuint(c_adat_rx_demux);
 
     #pragma unsafe arrays
-    for(unsigned ch = 0; ch < adat_rx_channels; ch++){
+    for(unsigned ch = 0; ch < asrc_io.input_channel_count; ch++){
         adat_rx_samples[ch] = inuint(c_adat_rx_demux);
     }
 
@@ -66,17 +66,17 @@ void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_ch
         {
             case inuint_byref(c_adat_rx, word):
                 // grab timestamp first for minimum jitter
-                uint32_t time_stamp;
+                int32_t time_stamp;
                 tmr :> time_stamp;
                 uint8_t other_buff_idx = adat_state_idx ^ 1;
                 if(word & 0x01){
                     adat_state[adat_state_idx].rx_time_last = adat_state[other_buff_idx].rx_time_latest;
-                    adat_state[adat_state_idx].rx_time_latest = time_stamp;
                     adat_state[adat_state_idx].channel = 0;
                     adat_state[adat_state_idx].user_bits = word >> 4;
                 } else {
                     adat_state[adat_state_idx].samples[adat_state[adat_state_idx].channel] = word << 4;
                     adat_state[adat_state_idx].channel++;
+                    adat_state[adat_state_idx].rx_time_latest = time_stamp;
 
                     switch(smux_setting){
                         // No SMUX - 12345678
@@ -92,14 +92,11 @@ void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_ch
                                 outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[5]);
                                 outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[6]);
                                 outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[7]);
-                                // outct(c_adat_rx_demux, XS1_CT_END);
-                                // chkct(c_adat_rx_demux, XS1_CT_END);
+
                                 adat_state[adat_state_idx].channel = 0;
                                 adat_state_idx ^= 1;
                                 smux_setting = new_smux_setting;
                                 sample_period_count++;
-                                // printchar('+');
-
                             }
                         break;
 
@@ -119,8 +116,7 @@ void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_ch
                                     outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[5]);
                                     outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[7]);
                                 }
-                                // outct(c_adat_rx_demux, XS1_CT_END);
-                                // chkct(c_adat_rx_demux, XS1_CT_END);
+
                                 adat_state[adat_state_idx].channel = 0;
                                 sample_period_count++;
                                 adat_group_idx++;
@@ -137,11 +133,10 @@ void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_ch
                             if(adat_state[adat_state_idx].channel == 2){
                                 outuint(c_adat_rx_demux, measured_adat_rate);
                                 outuint(c_adat_rx_demux, 2);
-                                unsigned offset = adat_group_idx * 2;
+                                unsigned offset = adat_group_idx;
                                 outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[offset + 0]);
                                 outuint(c_adat_rx_demux, adat_state[other_buff_idx].samples[offset + 4]);
-                                // outct(c_adat_rx_demux, XS1_CT_END);
-                                // chkct(c_adat_rx_demux, XS1_CT_END);
+
                                 adat_state[adat_state_idx].channel = 0;
                                 sample_period_count++;
                                 adat_group_idx++;
@@ -158,9 +153,8 @@ void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_ch
 
             case c_smux_change_adat_rx :> word:
                 if(word == IO_ADAT_RX){
-                    unsigned new_smux_setting;
                     c_smux_change_adat_rx :> new_smux_setting;
-                    printstr("adat rx smux: ");printintln(new_smux_setting);
+                    printstr("ADAT rx SMUX change: ");printintln(new_smux_setting);
                 }
             break;
 
