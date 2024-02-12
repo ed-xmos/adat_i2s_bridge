@@ -49,7 +49,7 @@ on tile[1]: buffered in port:32 p_adc[NUM_I2S_ADC_LINES] =  {PORT_I2S_ADC0};
 on tile[1]: clock bclk =                                    XS1_CLKBLK_1;
 
 
-// Global to allow asrc_task to poll it
+// Global to allow asrc_task to read it
 uint32_t current_i2s_rate = 0;                  // Set to invalid initially
 
 #if POLL_CONTROL_IN_SEND

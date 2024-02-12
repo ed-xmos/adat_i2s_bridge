@@ -20,6 +20,30 @@
 
 int asrc_channel_count = 8;                 // Current channel count (dynamic)
 
+ __attribute__ ((weak))
+unsigned receive_asrc_input_samples(chanend c_asrc_input_samples, asrc_in_out_t *asrc_io, unsigned asrc_channel_count, unsigned *new_input_rate){
+    printstrln("ERROR: Please define an appropriate ASRC receive samples function.");
+    while(1);
+
+    /* Something like this:
+
+    timer tmr;
+    tmr :> asrc_io.input_timestamp;
+    new_input_rate = inuint(c_asrc_input_samples);
+
+    // Pack into array properly LRLRLRLR or 123412341234 etc.
+    for(int i = 0; i < asrc_channel_count; i++){
+        int idx = i + asrc_channel_count * asrc_in_counter;
+        asrc_io.input_samples[input_write_idx][idx] = adat_rx_samples[i];
+    }
+
+    if(++asrc_in_counter == SRC_N_IN_SAMPLES){
+        asrc_in_counter = 0;
+    }
+
+    return asrc_in_counter;
+    */
+}
 
 
 int fs_code(int frequency) {
@@ -172,17 +196,15 @@ int par_asrc(int num_jobs, schedule_info_t schedule[], uint64_t fs_ratio, asrc_i
 
 
 
-///// FIFO
+///// FIFO declaration. Global to allow producer and consumer to access it
 #define FIFO_LENGTH   100
 int64_t array[ASYNCHRONOUS_FIFO_INT64_ELEMENTS(FIFO_LENGTH, MAX_ASRC_CHANNELS_TOTAL)];
 asynchronous_fifo_t *fifo = (asynchronous_fifo_t *)array;
 
 
-
 int pull_samples(int32_t *samples, int32_t consume_timestamp){
     asynchronous_fifo_consume(fifo, samples, consume_timestamp);
-    // printintln(samples[0]);
-    // printf("pull @ %ld\n", consume_timestamp);
+
     return asrc_channel_count;
 }
 
@@ -191,6 +213,7 @@ void reset_fifo(void){
     memset(fifo->buffer, 0, fifo->channel_count * fifo->max_fifo_depth * sizeof(int));
 }
 
+// Set by audio_hub
 extern uint32_t current_i2s_rate;
 
 
@@ -204,7 +227,7 @@ DEFINE_INTERRUPT_CALLBACK(ASRC_ISR_GRP, asrc_samples_rx_isr_handler, app_data)
     chanend_t c_buff_idx = isr_ctx->c_buff_idx;
     asrc_in_out_t *asrc_io = isr_ctx->asrc_io;
     
-    unsigned asrc_in_counter = receive_adat_samples(c_asrc_input, asrc_io, asrc_channel_count, &(asrc_io->input_frequency));
+    unsigned asrc_in_counter = receive_asrc_input_samples(c_asrc_input, asrc_io, asrc_channel_count, &(asrc_io->input_frequency));
 
     if(asrc_in_counter == 0 && ready_flag){
         chanend_out_byte(c_buff_idx, (uint8_t)asrc_io->input_write_idx);
@@ -249,14 +272,13 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
         int interpolation_ticks = interpolation_ticks_2D[inputFsCode][outputFsCode];
         printf("Input fs: %lu Output fs: %lu\n", input_frequency, output_frequency);
         
-        ///// FIFO
+        ///// FIFO init
         asynchronous_fifo_init(fifo, asrc_channel_count, FIFO_LENGTH);
         asynchronous_fifo_init_PID_fs_codes(fifo, inputFsCode, outputFsCode);
         printf("FIFO init channels: %d\n", asrc_channel_count);
 
 
-
-        // SCHEDULER
+        // SCHEDULER init
         schedule_info_t schedule[MAX_ASRC_THREADS];
         int num_jobs = calculate_job_share(asrc_channel_count, schedule);
         printf("num_jobs: %d, MAX_ASRC_THREADS: %d, asrc_channel_count: %d\n", num_jobs, MAX_ASRC_THREADS, asrc_channel_count);
@@ -269,9 +291,9 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
 
         // ASRC init
         asrc_state_t sASRCState[MAX_ASRC_THREADS][SRC_MAX_SRC_CHANNELS_PER_INSTANCE];                                   // ASRC state machine state
-        int iASRCStack[MAX_ASRC_THREADS][SRC_MAX_SRC_CHANNELS_PER_INSTANCE][ASRC_STACK_LENGTH_MULT * SRC_N_IN_SAMPLES ]; // Buffer between filter stages
+        int iASRCStack[MAX_ASRC_THREADS][SRC_MAX_SRC_CHANNELS_PER_INSTANCE][ASRC_STACK_LENGTH_MULT * SRC_N_IN_SAMPLES ];// Buffer between filter stages
         asrc_ctrl_t sASRCCtrl[MAX_ASRC_THREADS][SRC_MAX_SRC_CHANNELS_PER_INSTANCE];                                     // Control structure
-        asrc_adfir_coefs_t asrc_adfir_coefs[MAX_ASRC_THREADS];                                                           // Adaptive filter coefficients
+        asrc_adfir_coefs_t asrc_adfir_coefs[MAX_ASRC_THREADS];                                                          // Adaptive filter coefficients
 
         uint64_t fs_ratio = 0;
         int ideal_fs_ratio = 0;
@@ -301,10 +323,10 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
         while(!audio_format_change){
 
             ready_flag = 1; // Signal we are ready to consume a frame of input samples
+
             // Wait for block of samples
             unsigned input_write_idx = (unsigned)chanend_in_byte(c_buff_idx);
             unsigned new_input_rate = asrc_io.input_frequency;
-
 
             int32_t t0 = get_reference_time();
             int num_output_samples = par_asrc(num_jobs, schedule, fs_ratio, &asrc_io, input_write_idx, sASRCCtrl);

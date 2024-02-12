@@ -7,7 +7,7 @@
 #include "app_config.h"
 
 // Called from a different tile hence channel usage
-unsigned receive_adat_samples(chanend c_adat_rx_demux, asrc_in_out_t &asrc_io, unsigned asrc_channel_count, unsigned &new_input_rate){
+unsigned receive_asrc_input_samples(chanend c_adat_rx_demux, asrc_in_out_t &asrc_io, unsigned asrc_channel_count, unsigned &new_input_rate){
     static unsigned asrc_in_counter = 0;
     unsigned input_write_idx = asrc_io.input_write_idx;
 
