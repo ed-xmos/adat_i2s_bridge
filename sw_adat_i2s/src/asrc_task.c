@@ -81,7 +81,7 @@ void do_asrc_group(schedule_info_t *schedule, uint64_t fs_ratio, asrc_in_out_t *
     int num_worker_channels = schedule->num_channels;
     int worker_channel_start_idx = schedule->channel_start_idx;
 
-    // Pack into the frame this instance ASRC expects
+    // Pack into the frame this instance of ASRC expects
     int input_samples[ASRC_N_IN_SAMPLES * MAX_ASRC_CHANNELS_TOTAL];
     for(int i = 0; i < ASRC_N_IN_SAMPLES * num_worker_channels; i++){
         int rd_idx = i % num_worker_channels + (i / num_worker_channels) * asrc_channel_count + worker_channel_start_idx;
@@ -188,6 +188,7 @@ int pull_samples(int32_t *samples, int32_t consume_timestamp){
 
 void reset_fifo(void){
     asynchronous_fifo_reset_consumer(fifo);
+    memset(fifo->buffer, 0, fifo->channel_count * fifo->max_fifo_depth * sizeof(int));
 }
 
 extern uint32_t current_i2s_rate;
@@ -307,15 +308,12 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
 
             int32_t t0 = get_reference_time();
             int num_output_samples = par_asrc(num_jobs, schedule, fs_ratio, &asrc_io, input_write_idx, sASRCCtrl);
-            // printintln(asrc_io.output_samples[0]);
             int ts = asrc_timestamp_interpolation(asrc_io.input_timestamp, sASRCCtrl[0], interpolation_ticks);
             int error = asynchronous_fifo_produce(fifo, &asrc_io.output_samples[0], num_output_samples, ts, xscope_used);
-            // printintln(num_output_samples);
-            // printf("push @ %d\n", asrc_io.input_timestamp);
-            fs_ratio = (((int64_t)ideal_fs_ratio) << 32) + (error * (int64_t) ideal_fs_ratio);
-            // printintln(error);
-            int32_t t1 = get_reference_time();
 
+            fs_ratio = (((int64_t)ideal_fs_ratio) << 32) + (error * (int64_t) ideal_fs_ratio);
+
+            int32_t t1 = get_reference_time();
             if(t1 - t0 > asrc_peak_processing_time){
                 asrc_peak_processing_time = t1 - t0;
                 printintln(asrc_peak_processing_time);
@@ -327,7 +325,6 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
                 printf("depth: %lu\n", (fifo->write_ptr - fifo->read_ptr + fifo->max_fifo_depth) % fifo->max_fifo_depth);
                 print_counter = 0;
             }
-            // printf("ratio: %llu\n", fs_ratio);
 
             if(new_input_rate != input_frequency){
                 if(new_input_rate != 0){
@@ -343,6 +340,8 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
                 }
             }
         } // while !audio_format_change
+
+        // We have broken out of the loop due to a format change
         ready_flag = 0;
         asynchronous_fifo_reset_producer(fifo);
     } // while 1
@@ -353,6 +352,7 @@ void asrc_processor(chanend_t c_asrc_input){
     chanend_t c_buff_idx = chanend_alloc();
     chanend_set_dest(c_buff_idx, c_buff_idx);
 
+    // Run the ASRC task with stack set aside for an ISR
     INTERRUPT_PERMITTED(asrc_processor_)(c_asrc_input, c_buff_idx);
 }
 
