@@ -25,8 +25,9 @@ unsigned receive_asrc_input_samples(chanend c_asrc_input_samples, asrc_in_out_t 
     printstrln("ERROR: Please define an appropriate ASRC receive samples function.");
     while(1);
 
-    /* Something like this:
+    /* Example Rx function (called from ASRC):
 
+    // Grab timestamp
     timer tmr;
     tmr :> asrc_io.input_timestamp;
     new_input_rate = inuint(c_asrc_input_samples);
@@ -216,9 +217,6 @@ void reset_fifo(void){
 // Set by audio_hub
 extern uint32_t current_i2s_rate;
 
-
-volatile int ready_flag = 0;
-
 // This is fired each time a sample is received
 DEFINE_INTERRUPT_CALLBACK(ASRC_ISR_GRP, asrc_samples_rx_isr_handler, app_data)
 {
@@ -227,13 +225,14 @@ DEFINE_INTERRUPT_CALLBACK(ASRC_ISR_GRP, asrc_samples_rx_isr_handler, app_data)
     chanend_t c_buff_idx = isr_ctx->c_buff_idx;
     asrc_in_out_t *asrc_io = isr_ctx->asrc_io;
     
+    // Always consume samples so we don't apply backpressure
     unsigned asrc_in_counter = receive_asrc_input_samples(c_asrc_input, asrc_io, asrc_channel_count, &(asrc_io->input_frequency));
 
-    if(asrc_in_counter == 0 && ready_flag){
+    // Only forward on to ASRC if it is ready (to avoid deadlock)
+    if(asrc_in_counter == 0 && asrc_io->ready_flag){
         chanend_out_byte(c_buff_idx, (uint8_t)asrc_io->input_write_idx);
         asrc_io->input_write_idx ^= 1;
     }
-
 }
 
 
@@ -322,7 +321,7 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
 
         while(!audio_format_change){
 
-            ready_flag = 1; // Signal we are ready to consume a frame of input samples
+            asrc_io.ready_flag = 1; // Signal we are ready to consume a frame of input samples
 
             // Wait for block of samples
             unsigned input_write_idx = (unsigned)chanend_in_byte(c_buff_idx);
@@ -364,7 +363,7 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
         } // while !audio_format_change
 
         // We have broken out of the loop due to a format change
-        ready_flag = 0;
+        asrc_io.ready_flag = 0;
         asynchronous_fifo_reset_producer(fifo);
     } // while 1
 }
