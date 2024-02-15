@@ -295,6 +295,7 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
 
         uint64_t fs_ratio = 0;
         int ideal_fs_ratio = 0;
+        int error = 0;
 
         for(int instance = 0; instance < num_jobs; instance++){
             for(int ch = 0; ch < max_channels_per_instance; ch++){
@@ -330,7 +331,10 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
             int32_t t0 = get_reference_time();
             int num_output_samples = par_asrc(num_jobs, schedule, fs_ratio, &asrc_io, input_write_idx, sASRCCtrl);
             int ts = asrc_timestamp_interpolation(asrc_io.input_timestamp, sASRCCtrl[0], interpolation_ticks);
-            int error = asynchronous_fifo_produce(fifo, &asrc_io.output_samples[0], num_output_samples, ts, xscope_used);
+            // Only push to FIFO if we have samples (FIFO has a bug) otherwise hold last error value
+            if(num_output_samples){
+                error = asynchronous_fifo_produce(fifo, &asrc_io.output_samples[0], num_output_samples, ts, xscope_used);
+            }
 
             fs_ratio = (((int64_t)ideal_fs_ratio) << 32) + (error * (int64_t) ideal_fs_ratio);
 
