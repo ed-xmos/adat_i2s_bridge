@@ -242,8 +242,9 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
     uint32_t output_frequency = 48000;
 
     asrc_in_out_t asrc_io = {{{0}}};
+    volatile int *ready_flag_ptr = &asrc_io.ready_flag;
 
-    // Used for calculating the timestamp interpolation
+    // Used for calculating the timestamp interpolation between major frequency conversions
     const int interpolation_ticks_2D[6][6] = {
         {  2268, 2268, 2268, 2268, 2268, 2268},
         {  2083, 2083, 2083, 2083, 2083, 2083},
@@ -293,6 +294,7 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
         asrc_ctrl_t sASRCCtrl[MAX_ASRC_THREADS][SRC_MAX_SRC_CHANNELS_PER_INSTANCE];                                     // Control structure
         asrc_adfir_coefs_t asrc_adfir_coefs[MAX_ASRC_THREADS];                                                          // Adaptive filter coefficients
 
+        int error = 0;
         uint64_t fs_ratio = 0;
         int ideal_fs_ratio = 0;
 
@@ -320,7 +322,7 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
 
         while(!audio_format_change){
 
-            asrc_io.ready_flag = 1; // Signal we are ready to consume a frame of input samples
+            *ready_flag_ptr = 1; // Signal we are ready to consume a frame of input samples
 
             // Wait for block of samples
             unsigned input_write_idx = (unsigned)chanend_in_byte(c_buff_idx);
@@ -330,7 +332,10 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
             int32_t t0 = get_reference_time();
             int num_output_samples = par_asrc(num_jobs, schedule, fs_ratio, &asrc_io, input_write_idx, sASRCCtrl);
             int ts = asrc_timestamp_interpolation(asrc_io.input_timestamp, sASRCCtrl[0], interpolation_ticks);
-            int error = asynchronous_fifo_produce(fifo, &asrc_io.output_samples[0], num_output_samples, ts, xscope_used);
+            // Only push to FIFO if we have samples (FIFO has a bug) otherwise hold last error value
+            if(num_output_samples){
+                error = asynchronous_fifo_produce(fifo, &asrc_io.output_samples[0], num_output_samples, ts, xscope_used);
+            }
 
             fs_ratio = (((int64_t)ideal_fs_ratio) << 32) + (error * (int64_t) ideal_fs_ratio);
 
@@ -368,13 +373,14 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
 
         // We have broken out of the loop due to a format change. SR may not be stable yet so wait until it is.
         input_frequency = 0;
-        // Continue receivng samples until input SR embedded is stable
+        // Continue receivng samples until input SR is stable (non zero)
         while(input_frequency == 0 || new_output_rate == 0){
             chanend_in_byte(c_buff_idx);
             input_frequency = asrc_io.input_frequency;
+            // printstrln(".");
         }
         // We will be doing init next which could take a while so not yet read to receive frames
-        asrc_io.ready_flag = 0;
+        *ready_flag_ptr = 0;
 
     } // while 1
 }
