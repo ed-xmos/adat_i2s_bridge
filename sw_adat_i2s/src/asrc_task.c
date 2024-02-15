@@ -31,6 +31,7 @@ unsigned receive_asrc_input_samples(chanend c_asrc_input_samples, asrc_in_out_t 
     timer tmr;
     tmr :> asrc_io.input_timestamp;
     new_input_rate = inuint(c_asrc_input_samples);
+    asrc_io.input_timestamp = inuint(c_adat_rx_demux);
 
     // Pack into array properly LRLRLRLR or 123412341234 etc.
     for(int i = 0; i < *asrc_channel_count; i++){

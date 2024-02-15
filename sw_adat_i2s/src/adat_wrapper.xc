@@ -15,9 +15,8 @@ unsigned receive_asrc_input_samples(chanend c_adat_rx_demux, asrc_in_out_t &asrc
     int32_t adat_rx_samples[8] = {0};
 
     // Get ADAT samples from channel
-    timer tmr;
     new_input_rate = inuint(c_adat_rx_demux);
-    tmr :> asrc_io.input_timestamp;
+    asrc_io.input_timestamp = inuint(c_adat_rx_demux);
     asrc_io.input_channel_count = inuint(c_adat_rx_demux);
 
     #pragma unsafe arrays
@@ -38,6 +37,7 @@ unsigned receive_asrc_input_samples(chanend c_adat_rx_demux, asrc_in_out_t &asrc
     return asrc_in_counter;
 }
 
+int32_t samp;
 
 void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_change_adat_rx)
 {
@@ -79,14 +79,12 @@ void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_ch
                     adat_state[adat_state_wr_idx].sample_number++;
                     adat_state[adat_state_wr_idx].rx_time_last_sample = time_stamp;
 
-                    // samp = adat_state[adat_state_wr_idx].sample_number;
-                    // samp = adat_sample_frame_idx;
-                    samp = adat_state[adat_state_wr_idx].samples[0];
                     switch(smux_setting){
                         // No SMUX - 12345678
                         case SMUX_NONE:
                             if(adat_state[adat_state_wr_idx].sample_number >= 8){
                                 outuint(c_adat_rx_demux, measured_adat_rate);
+                                outuint(c_adat_rx_demux, adat_state[adat_state_rd_idx].rx_time_last_sample);
                                 outuint(c_adat_rx_demux, 8);
                                 outuint(c_adat_rx_demux, adat_state[adat_state_rd_idx].samples[0]);
                                 outuint(c_adat_rx_demux, adat_state[adat_state_rd_idx].samples[1]);
@@ -107,6 +105,7 @@ void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_ch
                         case SMUX_II:
                             if(adat_state[adat_state_wr_idx].sample_number == 4){
                                 outuint(c_adat_rx_demux, measured_adat_rate);
+                                outuint(c_adat_rx_demux, adat_state[adat_state_rd_idx].rx_time_last_sample);
                                 outuint(c_adat_rx_demux, 4);
                                 outuint(c_adat_rx_demux, adat_state[adat_state_rd_idx].samples[0]);
                                 outuint(c_adat_rx_demux, adat_state[adat_state_rd_idx].samples[2]);
@@ -116,6 +115,7 @@ void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_ch
                             }
                             else if(adat_state[adat_state_wr_idx].sample_number >= 8){
                                 outuint(c_adat_rx_demux, measured_adat_rate);
+                                outuint(c_adat_rx_demux, adat_state[adat_state_rd_idx].rx_time_last_sample);
                                 outuint(c_adat_rx_demux, 4);
                                 outuint(c_adat_rx_demux, adat_state[adat_state_rd_idx].samples[1]);
                                 outuint(c_adat_rx_demux, adat_state[adat_state_rd_idx].samples[3]);
@@ -132,6 +132,7 @@ void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_ch
                         case SMUX_IV:
                             if(adat_state[adat_state_wr_idx].sample_number == 2){
                                 outuint(c_adat_rx_demux, measured_adat_rate);
+                                outuint(c_adat_rx_demux, adat_state[adat_state_rd_idx].rx_time_last_sample);
                                 outuint(c_adat_rx_demux, 2);
                                 outuint(c_adat_rx_demux, adat_state[adat_state_rd_idx].samples[0]);
                                 outuint(c_adat_rx_demux, adat_state[adat_state_rd_idx].samples[4]);
@@ -139,6 +140,7 @@ void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_ch
                             }
                             else if(adat_state[adat_state_wr_idx].sample_number == 4){
                                 outuint(c_adat_rx_demux, measured_adat_rate);
+                                outuint(c_adat_rx_demux, adat_state[adat_state_rd_idx].rx_time_last_sample);
                                 outuint(c_adat_rx_demux, 2);
                                 outuint(c_adat_rx_demux, adat_state[adat_state_rd_idx].samples[1]);
                                 outuint(c_adat_rx_demux, adat_state[adat_state_rd_idx].samples[5]);
@@ -146,6 +148,7 @@ void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_ch
                             }
                             else if(adat_state[adat_state_wr_idx].sample_number == 6){
                                 outuint(c_adat_rx_demux, measured_adat_rate);
+                                outuint(c_adat_rx_demux, adat_state[adat_state_rd_idx].rx_time_last_sample);
                                 outuint(c_adat_rx_demux, 2);
                                 outuint(c_adat_rx_demux, adat_state[adat_state_rd_idx].samples[2]);
                                 outuint(c_adat_rx_demux, adat_state[adat_state_rd_idx].samples[6]);
@@ -153,6 +156,7 @@ void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_ch
                             }
                             else if(adat_state[adat_state_wr_idx].sample_number >= 8){
                                 outuint(c_adat_rx_demux, measured_adat_rate);
+                                outuint(c_adat_rx_demux, adat_state[adat_state_rd_idx].rx_time_last_sample);
                                 outuint(c_adat_rx_demux, 2);
                                 outuint(c_adat_rx_demux, adat_state[adat_state_rd_idx].samples[3]);
                                 outuint(c_adat_rx_demux, adat_state[adat_state_rd_idx].samples[7]);
