@@ -372,6 +372,7 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
         while(input_frequency == 0 || new_output_rate == 0){
             chanend_in_byte(c_buff_idx);
             input_frequency = asrc_io.input_frequency;
+            printstr("."); //TODO why does this need to be here?
         }
         // We will be doing init next which could take a while so not yet read to receive frames
         asrc_io.ready_flag = 0;

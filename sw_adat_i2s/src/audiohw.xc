@@ -30,7 +30,7 @@ on tile[0]: in port p_margin = XS1_PORT_1G;  /* CORE_POWER_MARGIN:   Driven 0:  
 #define DEFAULT_FREQ        MCLK_48
 #define XUA_PCM_FORMAT_I2S  1
 #define XUA_I2S_N_BITS      32
-#define CODEC_MASTER        0
+#define CODEC_MASTER        1 // Turning this to 1 puts XMOS as slave
 #define I2S_LOOPBACK        0
 #define I2S_CHANS_PER_FRAME 2
 #define USE_FRACTIONAL_N    0

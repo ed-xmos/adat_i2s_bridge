@@ -17,9 +17,6 @@ extern "C"{
 #include "utils.h"
 #include "app_config.h"
 
-// We will switch to this and enable distributable when I2S slave
-#define POLL_CONTROL_IN_SEND 1
-
 
 extern void board_setup(void);
 extern void AudioHwInit(void);
@@ -41,11 +38,10 @@ on tile[0]: out port p_leds =                               XS1_PORT_4F;
 
 // I2S resources
 on tile[1]: in port p_mclk =                                PORT_MCLK_IN;
-on tile[1]: buffered out port:32 p_lrclk =                  PORT_I2S_LRCLK;
-on tile[1]: out port p_bclk =                               PORT_I2S_BCLK;
-// on tile[1]: buffered out port:32 p_dac[NUM_I2S_DAC_LINES] = {PORT_I2S_DAC0, PORT_I2S_DAC1, PORT_I2S_DAC2, PORT_I2S_DAC3};
-on tile[1]: buffered out port:32 p_dac[NUM_I2S_DAC_LINES] = {PORT_I2S_DAC0, PORT_I2S_DAC1, PORT_I2S_DAC2};
-on tile[1]: buffered in port:32 p_adc[NUM_I2S_ADC_LINES] =  {PORT_I2S_ADC0};
+on tile[1]: buffered in port:32 p_lrclk =                   PORT_I2S_LRCLK;
+on tile[1]: in port p_bclk =                                PORT_I2S_BCLK;
+on tile[1]: buffered out port:32 p_dac[NUM_I2S_DAC_LINES] = {PORT_I2S_DAC0, PORT_I2S_DAC1, PORT_I2S_DAC2, PORT_I2S_DAC3};
+on tile[1]: buffered in port:32 p_adc[NUM_I2S_ADC_LINES] =  {PORT_I2S_ADC0 ,PORT_I2S_ADC1, PORT_I2S_ADC2, PORT_I2S_ADC3};
 on tile[1]: clock bclk =                                    XS1_CLKBLK_1;
 
 
@@ -142,7 +138,7 @@ void audio_hub( chanend c_adat_tx,
                     current_i2s_rate = measured_i2s_rate;
                     new_output_rate = current_i2s_rate;
                 }
-#if POLL_CONTROL_IN_SEND
+                // Poll SR change channel
                 select{
                     case c_sr_change :> unsigned id:
                         if(id == IO_I2S){
@@ -161,30 +157,10 @@ void audio_hub( chanend c_adat_tx,
                     break;
                     // Fallthrough
                     default:
+                        // Do nothing. No format change.
                     break;
                 }
-#endif
-
             break;
-
-#if !POLL_CONTROL_IN_SEND
-            // This will dissappear when we move to slave
-            case c_sr_change :> unsigned id:
-                if(id == IO_I2S){
-                    unsigned new_sr;
-                    c_sr_change :> new_sr;
-                    master_clock_frequency = (new_sr % 48000 == 0) ? MCLK_48 : MCLK_441;
-
-                    i2s_set_sample_rate = new_sr;
-                    i2s_master_sample_rate_change = 1;
-                }
-                if(id == IO_ADAT_TX){
-                    unsigned new_smux;
-                    c_sr_change :> new_smux;
-                    printstr("adat tx smux: ");printintln(new_smux);
-                }
-            break;
-#endif
         } // select
     }// while(1)
 }
@@ -217,11 +193,9 @@ int main(void) {
             adat_tx_setup_task(c_adat_tx, mck_blk, p_mclk, p_adat_out);
 
             par {
-#if POLL_CONTROL_IN_SEND
                 [[distribute]]
-#endif
                 audio_hub(c_adat_tx, i_i2s, c_sr_change_i2s);
-                i2s_frame_master(i_i2s, p_dac, NUM_I2S_DAC_LINES, p_adc, NUM_I2S_ADC_LINES, I2S_DATA_BITS, p_bclk, p_lrclk, p_mclk, bclk);
+                i2s_frame_slave(i_i2s, p_dac, NUM_I2S_DAC_LINES, p_adc, NUM_I2S_ADC_LINES, I2S_DATA_BITS, p_bclk, p_lrclk, bclk);
                 adat_tx_port(c_adat_tx, p_adat_out);
                 asrc_processor(c_adat_rx_demux);
             }
