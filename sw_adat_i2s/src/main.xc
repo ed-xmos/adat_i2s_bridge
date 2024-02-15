@@ -90,9 +90,11 @@ void audio_hub( chanend c_adat_tx,
 
                 i2s_config.mclk_bclk_ratio = (master_clock_frequency / (i2s_set_sample_rate*2*I2S_DATA_BITS));
                 printstr("i2s init: "); printintln(i2s_set_sample_rate);
+
                 mute = i2s_set_sample_rate >> 2; // 250ms
                 AudioHwConfig(i2s_set_sample_rate, master_clock_frequency, 0, 24, 24);
                 i2s_config.mode = I2S_MODE_I2S;
+
                 reset_fifo();
 
                 init_adat_tx(c_adat_tx, adat_tx_smux, adat_tx_samples);
@@ -121,7 +123,7 @@ void audio_hub( chanend c_adat_tx,
 
             case i_i2s.receive(size_t num_in, int32_t samples[num_in]):
                 memcpy(adat_tx_samples, samples, num_in * sizeof(int32_t));
-                send_adat_tx_samples(c_adat_tx, (unsigned *)adat_tx_samples, adat_tx_smux, 1);
+                send_adat_tx_samples(c_adat_tx, (unsigned *)adat_tx_samples, adat_tx_smux);
             break;
 
             case i_i2s.send(size_t num_out, int32_t samples[num_out]):

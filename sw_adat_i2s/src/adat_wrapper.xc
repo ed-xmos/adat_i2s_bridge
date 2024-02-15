@@ -238,8 +238,6 @@ void init_adat_tx(chanend c_adat_tx, unsigned adat_tx_smux, int32_t *adat_tx_sam
     // Send initial frame so protocol for TransferAdatTxSamples is synched
     unsafe{
         volatile unsigned * unsafe sample_ptr = (volatile unsigned * unsafe)adat_tx_samples;
-        printhexln((unsigned) sample_ptr);
-        printintln(*sample_ptr);
         outuint(c_adat_tx, (unsigned) sample_ptr);
     }
 

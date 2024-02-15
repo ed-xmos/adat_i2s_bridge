@@ -40,7 +40,7 @@ void deinit_adat_tx(chanend c_adat_tx);
 
 
 #pragma unsafe arrays
-static inline void send_adat_tx_samples(chanend c_adat_tx, const unsigned adat_tx_samples[], int smux, int handshake)
+static inline void send_adat_tx_samples(chanend c_adat_tx, const unsigned adat_tx_samples[], int smux)
 {
     static unsigned adatCounter = 0;
     unsigned adatSamples[8];
