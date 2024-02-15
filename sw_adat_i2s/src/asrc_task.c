@@ -327,7 +327,7 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
             unsigned input_write_idx = (unsigned)chanend_in_byte(c_buff_idx);
             unsigned new_input_rate = asrc_io.input_frequency;
             unsigned new_asrc_channel_count = asrc_io.input_channel_count;
-            printintln(asrc_io.input_samples[0][0]);
+            // printintln(asrc_io.input_samples[0][0]);
 
             int32_t t0 = get_reference_time();
             int num_output_samples = par_asrc(num_jobs, schedule, fs_ratio, &asrc_io, input_write_idx, sASRCCtrl);

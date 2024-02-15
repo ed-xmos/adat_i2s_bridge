@@ -21,15 +21,15 @@
 
 
 typedef struct asrc_in_out_t{
-    int32_t input_samples[2][ASRC_N_IN_SAMPLES * MAX_ASRC_CHANNELS_TOTAL]; // Double buffer input array
-    unsigned input_write_idx;
-    int ready_flag;
-    int32_t input_timestamp;
-    unsigned input_frequency;
-    unsigned input_channel_count;
-    int32_t output_samples[SRC_MAX_NUM_SAMPS_OUT * MAX_ASRC_CHANNELS_TOTAL];
-    uint32_t num_output_samples;
-    int32_t output_time_stamp;
+    int32_t input_samples[2][ASRC_N_IN_SAMPLES * MAX_ASRC_CHANNELS_TOTAL];  // Double buffer input array
+    unsigned input_write_idx;                                               // Double buffer idx
+    int ready_flag;                                                         // Flag to indicate ASRC ready to accept samples
+    int32_t input_timestamp;                                                // Timestamp of last received input sample
+    unsigned input_frequency;                                               // Nominal input sample rate 
+    unsigned input_channel_count;                                           // As named..
+    int32_t output_samples[SRC_MAX_NUM_SAMPS_OUT * MAX_ASRC_CHANNELS_TOTAL];// Output sample array
+    uint32_t num_output_samples;                                            // How many sample periods worth of channels
+    int32_t output_time_stamp;                                              // The consumption timestamp (set by consumer)
 }asrc_in_out_t;
 
 #ifdef __XC__

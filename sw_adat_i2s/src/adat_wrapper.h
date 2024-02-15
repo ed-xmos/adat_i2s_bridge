@@ -17,10 +17,9 @@ enum adat_smux_setting{
 
 typedef struct adat_state_t{
     int32_t samples[ADAT_MAX_SAMPLES];
-    int32_t rx_time_latest;
-    int32_t rx_time_last;
+    int32_t rx_time_last_sample;
     uint8_t user_bits;
-    uint8_t channel;
+    uint8_t sample_number;
 }adat_state_t;
 
 #ifndef __XC__
