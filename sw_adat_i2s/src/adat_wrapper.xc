@@ -216,8 +216,40 @@ void adat_rx_task(chanend c_adat_rx, buffered in port:32 p_adat_in) {
 
 void adat_tx_task(chanend c_adat_tx, buffered out port:32 p_adat_out){
     while(1){
-        printstrln("ADAT TX START");
         adat_tx_port(c_adat_tx, p_adat_out);
-        printstrln("ADAT TX RESTART");
     }
 }
+
+
+void init_adat_tx(chanend c_adat_tx, unsigned adat_tx_smux, int32_t *adat_tx_samples){
+    // Setup ADAT Tx
+    // ADAT parameters ...
+    //
+    // adat_oversampling =  256 for MCLK = 12M288 or 11M2896
+    //                   =  512 for MCLK = 24M576 or 22M5792
+    //                   = 1024 for MCLK = 49M152 or 45M1584
+    //
+    // adatSmuxMode   = 1 for FS =  44K1 or  48K0
+    //                = 2 for FS =  88K2 or  96K0
+    //                = 4 for FS = 176K4 or 192K0
+
+    outuint(c_adat_tx, ADAT_MULTIPLIER);
+    outuint(c_adat_tx, adat_tx_smux);
+    // Send initial frame so protocol for TransferAdatTxSamples is synched
+    unsafe{
+        volatile unsigned * unsafe sample_ptr = (volatile unsigned * unsafe)adat_tx_samples;
+        printhexln((unsigned) sample_ptr);
+        printintln(*sample_ptr);
+        outuint(c_adat_tx, (unsigned) sample_ptr);
+    }
+
+    printstr("ADAT tx init smux: "); printintln(adat_tx_smux);
+}
+
+void deinit_adat_tx(chanend c_adat_tx){
+    // Take outstanding handshake from ADAT core
+    inuint(c_adat_tx);
+    // Notify ADAT Tx thread of impending new freq...
+    outct(c_adat_tx, XS1_CT_END);
+}
+

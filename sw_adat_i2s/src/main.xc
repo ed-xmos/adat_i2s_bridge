@@ -45,44 +45,6 @@ on tile[1]: buffered in port:32 p_adc[NUM_I2S_ADC_LINES] =  {PORT_I2S_ADC0 ,PORT
 on tile[1]: clock bclk =                                    XS1_CLKBLK_1;
 
 
-unsigned adatCounter = 0;
-unsigned adatSamples[8];
-
-#pragma unsafe arrays
-static inline void TransferAdatTxSamples(chanend c_adat_tx, const unsigned adat_tx_samples[], int smux, int handshake)
-{
-    // Do some re-arranging for SMUX..
-    unsafe
-    {
-        unsigned * unsafe samplesFromHostAdat = (unsigned * unsafe) adat_tx_samples;
-
-        // Note, when smux == 1 this loop just does a straight 1:1 copy
-        {
-            int adatSampleIndex = adatCounter;
-            for(int i = 0; i < (8/smux); i++)
-            {
-                adatSamples[adatSampleIndex] = samplesFromHostAdat[i];
-                adatSampleIndex += smux;
-            }
-        }
-    }
-
-    adatCounter++;
-
-    if(adatCounter == smux){
-        unsafe {
-            // Wait for ADAT core to be done with buffer
-            // Note, we are "running ahead" of the ADAT core
-            inuint(c_adat_tx);
-
-            // Send buffer pointer over to ADAT core
-            volatile unsigned * unsafe samplePtr = (unsigned * unsafe) &adatSamples;
-            outuint(c_adat_tx, (unsigned) samplePtr);
-        }
-        adatCounter = 0;
-    }
-}
-
 
 // Global to allow asrc_task to read it
 uint32_t new_output_rate = 0;                  // Set to invalid initially
@@ -119,9 +81,13 @@ void audio_hub( chanend c_adat_tx,
     int adat_tx_smux = SMUX_NONE;
     int32_t adat_tx_samples[ADAT_MAX_SAMPLES] = {0};
 
+    init_adat_tx(c_adat_tx, adat_tx_smux, adat_tx_samples);
+
     while(1) {
         select{
             case i_i2s.init(i2s_config_t &?i2s_config, tdm_config_t &?tdm_config):
+                deinit_adat_tx(c_adat_tx);
+
                 i2s_config.mclk_bclk_ratio = (master_clock_frequency / (i2s_set_sample_rate*2*I2S_DATA_BITS));
                 printstr("i2s init: "); printintln(i2s_set_sample_rate);
                 mute = i2s_set_sample_rate >> 2; // 250ms
@@ -129,27 +95,7 @@ void audio_hub( chanend c_adat_tx,
                 i2s_config.mode = I2S_MODE_I2S;
                 reset_fifo();
 
-                // Setup ADAT Tx
-                // ADAT parameters ...
-                //
-                // adat_oversampling =  256 for MCLK = 12M288 or 11M2896
-                //                   =  512 for MCLK = 24M576 or 22M5792
-                //                   = 1024 for MCLK = 49M152 or 45M1584
-                //
-                // adatSmuxMode   = 1 for FS =  44K1 or  48K0
-                //                = 2 for FS =  88K2 or  96K0
-                //                = 4 for FS = 176K4 or 192K0
-                outuint(c_adat_tx, ADAT_MULTIPLIER);
-                outuint(c_adat_tx, adat_tx_smux);
-                // Send initial frame so protocol for TransferAdatTxSamples is synched
-                unsafe{
-                    volatile unsigned * unsafe sample_ptr = (volatile unsigned * unsafe)adat_tx_samples;
-                    printhexln((unsigned) sample_ptr);
-                    outuint(c_adat_tx, (unsigned) sample_ptr);
-                }
-
-                printstr("ADAT tx init smux: "); printintln(adat_tx_smux);
-
+                init_adat_tx(c_adat_tx, adat_tx_smux, adat_tx_samples);
             break;
 
             case i_i2s.restart_check() -> i2s_restart_t restart:
@@ -175,7 +121,7 @@ void audio_hub( chanend c_adat_tx,
 
             case i_i2s.receive(size_t num_in, int32_t samples[num_in]):
                 memcpy(adat_tx_samples, samples, num_in * sizeof(int32_t));
-                TransferAdatTxSamples(c_adat_tx, (unsigned *)adat_tx_samples, adat_tx_smux, 1);
+                send_adat_tx_samples(c_adat_tx, (unsigned *)adat_tx_samples, adat_tx_smux, 1);
             break;
 
             case i_i2s.send(size_t num_out, int32_t samples[num_out]):
@@ -219,11 +165,6 @@ void audio_hub( chanend c_adat_tx,
                             unsigned new_smux;
                             c_sr_change :> new_smux;
                             printstr("adat tx smux: ");printintln(new_smux);
-
-                            // Take outstanding handshake from ADAT core
-                            inuint(c_adat_tx);
-                            // Notify ADAT Tx thread of impending new freq...
-                            outct(c_adat_tx, XS1_CT_END);
                         }
                     break;
                     // Fallthrough
