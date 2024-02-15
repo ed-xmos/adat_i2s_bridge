@@ -5,6 +5,10 @@
 #include "adat_wrapper.h"
 #include "utils.h"
 #include "app_config.h"
+#ifndef ADAT_TX_USE_SHARED_BUFF
+#error Designed for ADAT tx shared buffer mode ONLY
+#endif
+#include "adat_tx.h"
 
 // Called from a different tile hence channel usage. This overrides the weak function in asrc_task.c
 unsigned receive_asrc_input_samples(chanend c_adat_rx_demux, asrc_in_out_t &asrc_io, unsigned &asrc_channel_count, unsigned &new_input_rate){
@@ -37,8 +41,8 @@ unsigned receive_asrc_input_samples(chanend c_adat_rx_demux, asrc_in_out_t &asrc
     return asrc_in_counter;
 }
 
-int32_t samp;
 
+#pragma unsafe arrays // Remove array checks for speed
 void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_change_adat_rx)
 {
 
@@ -207,5 +211,13 @@ void adat_rx_task(chanend c_adat_rx, buffered in port:32 p_adat_in) {
         printstr("adatrx restart\n");
         adatReceiver44100(p_adat_in, c_adat_rx);
         printstr("adatrx restart\n");
+    }
+}
+
+void adat_tx_task(chanend c_adat_tx, buffered out port:32 p_adat_out){
+    while(1){
+        printstrln("ADAT TX START");
+        adat_tx_port(c_adat_tx, p_adat_out);
+        printstrln("ADAT TX RESTART");
     }
 }

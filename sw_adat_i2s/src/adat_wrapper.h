@@ -10,9 +10,9 @@
 #endif
 
 enum adat_smux_setting{
-    SMUX_NONE = 0,
-    SMUX_II,
-    SMUX_IV
+    SMUX_NONE = 1,
+    SMUX_II = 2,
+    SMUX_IV = 4
 };
 
 typedef struct adat_state_t{
@@ -31,6 +31,9 @@ void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_ch
 void adat_tx_setup_task(chanend c_adat_tx, clock mck_blk, in port p_mclk, buffered out port:32 p_adat_out);
 
 void adat_rx_task(chanend c_adat_rx, buffered in port:32 p_adat_in);
+
+void adat_tx_task(chanend c_adat_tx, buffered out port:32 p_adat_out);
+
 #endif
 
 #endif // _ADAT_H_

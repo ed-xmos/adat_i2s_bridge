@@ -6,6 +6,7 @@
 extern "C"{
     #include "sw_pll.h"
 }
+#include "app_config.h"
 
 port p_scl = PORT_I2C_SCL;
 port p_sda = PORT_I2C_SDA;
@@ -25,15 +26,13 @@ on tile[0]: in port p_margin = XS1_PORT_1G;  /* CORE_POWER_MARGIN:   Driven 0:  
                                               */
 
 #define XUA_USE_SW_PLL      0
-#define MCLK_441            22579200
-#define MCLK_48             24576000
-#define DEFAULT_FREQ        MCLK_48
 #define XUA_PCM_FORMAT_I2S  1
 #define XUA_I2S_N_BITS      32
 #define CODEC_MASTER        1 // Turning this to 1 puts XMOS as slave
 #define I2S_LOOPBACK        0
 #define I2S_CHANS_PER_FRAME 2
 #define USE_FRACTIONAL_N    0
+#define V1_1_HARDWARE       1 // Revision of XU316 MC board
 
 #if (USE_FRACTIONAL_N)
 #define EXT_PLL_SEL__MCLK_DIR    (0x00)
@@ -261,7 +260,6 @@ void AudioHwInit()
     unsafe
     {
         while(!(unsigned) i_i2c_client);
-        printhexln((unsigned) i_i2c_client);
     }
 
 
