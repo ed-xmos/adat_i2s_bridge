@@ -214,12 +214,11 @@ void reset_fifo(void){
     memset(fifo->buffer, 0, fifo->channel_count * fifo->max_fifo_depth * sizeof(int));
 }
 
-// Set by audio_hub
-extern uint32_t current_i2s_rate;
+// Set by audio_hub. Only read here
+extern uint32_t new_output_rate;
 
 // This is fired each time a sample is received (triggered by first channel token)
-DEFINE_INTERRUPT_CALLBACK(ASRC_ISR_GRP, asrc_samples_rx_isr_handler, app_data)
-{
+DEFINE_INTERRUPT_CALLBACK(ASRC_ISR_GRP, asrc_samples_rx_isr_handler, app_data){
     // Extract pointers and resource IDs
     isr_ctx_t *isr_ctx = app_data;
     chanend_t c_asrc_input = isr_ctx->c_asrc_input;
@@ -235,7 +234,6 @@ DEFINE_INTERRUPT_CALLBACK(ASRC_ISR_GRP, asrc_samples_rx_isr_handler, app_data)
         asrc_io->input_write_idx ^= 1; // Swap buffers
     }
 }
-
 
 // Main ASRC task. Defined as ISR friendly
 DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc_input, chanend_t c_buff_idx){
@@ -268,10 +266,10 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
         int audio_format_change = 0;
 
         // Frequency info
+        printf("Input fs: %lu Output fs: %lu\n", input_frequency, output_frequency);
         int inputFsCode = fs_code(input_frequency);
         int outputFsCode = fs_code(output_frequency);
         int interpolation_ticks = interpolation_ticks_2D[inputFsCode][outputFsCode];
-        printf("Input fs: %lu Output fs: %lu\n", input_frequency, output_frequency);
         
         ///// FIFO init
         asynchronous_fifo_init(fifo, asrc_channel_count, FIFO_LENGTH);
@@ -318,7 +316,7 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
         ideal_fs_ratio = (fs_ratio + (1<<31)) >> 32;
         printf("ideal_fs_ratio: %d\n", ideal_fs_ratio);
 
-        const int xscope_used = 0;
+        const int xscope_used = 0; // Vestige of ASRC API. TODO - cleanup in future when lib_src is tidied
 
         while(!audio_format_change){
 
@@ -328,7 +326,6 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
             unsigned input_write_idx = (unsigned)chanend_in_byte(c_buff_idx);
             unsigned new_input_rate = asrc_io.input_frequency;
             unsigned new_asrc_channel_count = asrc_io.input_channel_count;
-            // printintln(asrc_io.input_samples[0][0]);
 
             int32_t t0 = get_reference_time();
             int num_output_samples = par_asrc(num_jobs, schedule, fs_ratio, &asrc_io, input_write_idx, sASRCCtrl);
@@ -353,17 +350,13 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
 
             // Check for format changes
             if(new_input_rate != input_frequency){
-                if(new_input_rate != 0){
-                    input_frequency = new_input_rate;
-                    audio_format_change = 1;
-                }
+                input_frequency = new_input_rate;
+                audio_format_change = 1;
             }
 
-            if(current_i2s_rate != output_frequency){
-                if(current_i2s_rate != 0){
-                    output_frequency = current_i2s_rate;
-                    audio_format_change = 1;
-                }
+            if(new_output_rate != output_frequency){
+                output_frequency = new_output_rate;
+                audio_format_change = 1;
             }
 
             if(new_asrc_channel_count != asrc_channel_count){
@@ -373,8 +366,16 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
 
         } // while !audio_format_change
 
-        // We have broken out of the loop due to a format change
+        // We have broken out of the loop due to a format change. SR may not be stable yet so wait until it is.
+        input_frequency = 0;
+        // Continue receivng samples until input SR embedded is stable
+        while(input_frequency == 0 || new_output_rate == 0){
+            chanend_in_byte(c_buff_idx);
+            input_frequency = asrc_io.input_frequency;
+        }
+        // We will be doing init next which could take a while so not yet read to receive frames
         asrc_io.ready_flag = 0;
+
     } // while 1
 }
 

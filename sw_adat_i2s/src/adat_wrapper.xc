@@ -173,6 +173,7 @@ void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_ch
             case c_smux_change_adat_rx :> word:
                 if(word == IO_ADAT_RX){
                     c_smux_change_adat_rx :> new_smux_setting;
+                    measured_adat_rate = 0; // Invalidate sample rate as it is now wrong. It will be recalculated.
                     printstr("ADAT rx SMUX change: ");printintln(new_smux_setting);
                 }
             break;
