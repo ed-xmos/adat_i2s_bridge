@@ -42,7 +42,7 @@
 
 
 /* Init of CS2100 */
-void PllInit(UNSAFE client interface i2c_master_if i2c)
+void PllInit(client interface i2c_master_if i_i2c_client)
 {
     UNSAFE
     {
@@ -66,7 +66,7 @@ void PllInit(UNSAFE client interface i2c_master_if i2c)
 }
 
 /* Setup PLL multiplier */
-void PllMult(unsigned output, unsigned ref, UNSAFE client interface i2c_master_if i2c)
+void PllMult(client interface i2c_master_if i_i2c_client, unsigned output, unsigned ref)
 {
     UNSAFE
 

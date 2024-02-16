@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "app_config.h"
+#include "i2c.h"
 
 enum audio_port_idx{
     IO_I2S = 0,
@@ -56,6 +57,6 @@ inline uint32_t calc_sample_rate(int32_t *last_timestamp, int32_t latest_timesta
     return current_i2s_rate;
 }
 
-void gpio(chanend c_sr_change_i2s, chanend c_smux_change_adat_rx, in port p_buttons, out port p_leds);
+void gpio(chanend c_smux_change_adat_rx, in port p_buttons, out port p_leds, client interface i2c_master_if i_i2c);
 
 #endif

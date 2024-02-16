@@ -350,7 +350,7 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
             int32_t t1 = get_reference_time();
             if(t1 - t0 > asrc_peak_processing_time){
                 asrc_peak_processing_time = t1 - t0;
-                printintln(asrc_peak_processing_time);
+                // printintln(asrc_peak_processing_time);
             }
 
             // TODO Remove me. This is here to monitor PID loop convergence during dev

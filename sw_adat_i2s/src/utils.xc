@@ -8,6 +8,9 @@
 #include "utils.h"
 
 
+extern void AudioHwInit(client interface i2c_master_if i_i2c);
+extern void AudioHwConfig(client interface i2c_master_if i_i2c, unsigned samFreq, unsigned mClk, unsigned dsdMode, unsigned sampRes_DAC, unsigned sampRes_ADC);
+
 typedef struct button_state_t{
     uint8_t active_level;   // gpio level for active
     uint8_t counter;        // counts down
@@ -17,7 +20,7 @@ typedef struct button_state_t{
 const unsigned sr_list[] = {44100, 48000, 88200, 96000, 176400, 192000};
 const unsigned smux_list[] = {SMUX_NONE, SMUX_II, SMUX_IV};
 
-{unsigned, int} button_action(chanend c_sr_change_i2s, chanend c_smux_change_adat_rx, int idx){
+{unsigned, int} button_action(client interface i2c_master_if i_i2c, chanend c_smux_change_adat_rx, int idx){
     static unsigned curr_sr_idx = 1; //48k default
     static unsigned curr_rx_sm_idx = 0;
     static unsigned curr_tx_sm_idx = 0;
@@ -27,9 +30,9 @@ const unsigned smux_list[] = {SMUX_NONE, SMUX_II, SMUX_IV};
         if(curr_sr_idx == sizeof(sr_list) / sizeof(sr_list[0])){
             curr_sr_idx = 0;
         }
-        // Send to audiohub
-        c_sr_change_i2s <: IO_I2S;
-        c_sr_change_i2s <: sr_list[curr_sr_idx];
+        // Set new sample rate on CODEC (I2S master)
+        unsigned master_clock_frequency = (sr_list[curr_sr_idx] % 48000 == 0) ? MCLK_48 : MCLK_441;
+        AudioHwConfig(i_i2c, sr_list[curr_sr_idx], master_clock_frequency, 0, 24, 24);
     }
     if(idx == 1){
         curr_rx_sm_idx++;
@@ -45,15 +48,18 @@ const unsigned smux_list[] = {SMUX_NONE, SMUX_II, SMUX_IV};
         if(curr_tx_sm_idx == sizeof(smux_list) / sizeof(smux_list[0])){
             curr_tx_sm_idx = 0;
         }
-        c_sr_change_i2s <: IO_ADAT_TX;
-        c_sr_change_i2s <: smux_list[curr_tx_sm_idx];
     }
 
     return {curr_sr_idx, curr_rx_sm_idx};
 }
 
+
 #define NUM_BUTTONS 3
-void gpio(chanend c_sr_change_i2s, chanend c_smux_change_adat_rx, in port p_buttons, out port p_leds){
+void gpio(chanend c_smux_change_adat_rx, in port p_buttons, out port p_leds, client interface i2c_master_if i_i2c){
+
+    AudioHwInit(i_i2c);
+    AudioHwConfig(i_i2c, DEFAULT_FREQ, MCLK_48, 0, 24, 24);
+
     // Buttons
     const uint8_t counts_for_active = 20;
     const uint8_t active_level = 0;
@@ -91,7 +97,7 @@ void gpio(chanend c_sr_change_i2s, chanend c_smux_change_adat_rx, in port p_butt
                         if(button_state[i].counter){
                             button_state[i].counter--;
                             if(button_state[i].counter == 0){
-                                {sr_i2s_idx, adat_rx_smux_idx} = button_action(c_sr_change_i2s, c_smux_change_adat_rx, i);
+                                {sr_i2s_idx, adat_rx_smux_idx} = button_action(i_i2c, c_smux_change_adat_rx, i);
                             }
                         }
                     } else {

@@ -40,9 +40,6 @@ on tile[0]: in port p_margin = XS1_PORT_1G;  /* CORE_POWER_MARGIN:   Driven 0:  
 #define EXT_PLL_SEL__MCLK_DIR    (0x80)
 #endif
 
-unsafe client interface i2c_master_if i_i2c_client;
-
-
 /* Board setup for XU316 MC Audio (1v1) */
 void board_setup()
 {
@@ -76,7 +73,7 @@ void board_setup()
 }
 
 /* Working around not being able to extend an unsafe interface (Bugzilla #18670)*/
-i2c_regop_res_t i2c_reg_write(uint8_t device_addr, uint8_t reg, uint8_t data)
+i2c_regop_res_t i2c_reg_write(client interface i2c_master_if i_i2c_client, uint8_t device_addr, uint8_t reg, uint8_t data)
 {
     uint8_t a_data[2] = {reg, data};
     size_t n;
@@ -98,7 +95,7 @@ i2c_regop_res_t i2c_reg_write(uint8_t device_addr, uint8_t reg, uint8_t data)
     return I2C_REGOP_SUCCESS;
 }
 
-uint8_t i2c_reg_read(uint8_t device_addr, uint8_t reg, i2c_regop_res_t &result)
+uint8_t i2c_reg_read(client interface i2c_master_if i_i2c_client, uint8_t device_addr, uint8_t reg, i2c_regop_res_t &result)
 {
     uint8_t a_reg[1] = {reg};
     uint8_t data[1] = {0};
@@ -134,8 +131,8 @@ uint8_t i2c_reg_read(uint8_t device_addr, uint8_t reg, i2c_regop_res_t &result)
 /* CS2100 lists typical lock time as 100 * input period */
 #define AUDIO_PLL_LOCK_DELAY        (40000000)
 
-#define CS2100_REGWRITE(reg, val)                   {result = i2c_reg_write(CS2100_I2C_DEVICE_ADDR, reg, val);}
-#define CS2100_REGREAD_ASSERT(reg, data, expected)  {data[0] = i2c_reg_read(CS2100_I2C_DEVICE_ADDR, reg, result); assert(data[0] == expected);}
+#define CS2100_REGWRITE(reg, val)                   {result = i2c_reg_write(i_i2c_client, CS2100_I2C_DEVICE_ADDR, reg, val);}
+#define CS2100_REGREAD_ASSERT(reg, data, expected)  {data[0] = i2c_reg_read(i_i2c_client, CS2100_I2C_DEVICE_ADDR, reg, result); assert(data[0] == expected);}
 #define CS2100_I2C_DEVICE_ADDRESS                   (0x4E)
 #define UNSAFE unsafe
 #include "cs2100.h"
@@ -207,7 +204,7 @@ uint8_t i2c_reg_read(uint8_t device_addr, uint8_t reg, i2c_regop_res_t &result)
 #define PCM1865_PWR_STATE           (0x70) // Power down, Sleep, Standby
 
 
-void WriteRegs(int deviceAddr, int numDevices, int regAddr, int regData)
+void WriteRegs(client interface i2c_master_if i_i2c_client, int deviceAddr, int numDevices, int regAddr, int regData)
 {
     i2c_regop_res_t result;
 
@@ -215,25 +212,25 @@ void WriteRegs(int deviceAddr, int numDevices, int regAddr, int regData)
     {
         unsafe
         {
-            result = i2c_reg_write(i, regAddr, regData);
+            result = i2c_reg_write(i_i2c_client, i, regAddr, regData);
         }
         assert(result == I2C_REGOP_SUCCESS && msg("I2C write reg failed"));
     }
 }
 
 /* Note, this function assumes contiguous devices addresses */
-void WriteAllDacRegs(int regAddr, int regData)
+void WriteAllDacRegs(client interface i2c_master_if i_i2c_client, int regAddr, int regData)
 {
-    WriteRegs(PCM5122_0_I2C_DEVICE_ADDR, 4, regAddr, regData);
+    WriteRegs(i_i2c_client, PCM5122_0_I2C_DEVICE_ADDR, 4, regAddr, regData);
 }
 
 /* Note, this function assumes contiguous devices addresses */
-void WriteAllAdcRegs(int regAddr, int regData)
+void WriteAllAdcRegs(client interface i2c_master_if i_i2c_client, int regAddr, int regData)
 {
-    WriteRegs(PCM1865_0_I2C_DEVICE_ADDR, 2, regAddr, regData);
+    WriteRegs(i_i2c_client, PCM1865_0_I2C_DEVICE_ADDR, 2, regAddr, regData);
 }
 
-void SetI2CMux(int ch)
+void SetI2CMux(client interface i2c_master_if i_i2c_client, int ch)
 {
     i2c_regop_res_t result;
 
@@ -242,31 +239,25 @@ void SetI2CMux(int ch)
     // We set "address" to 0 below as it's discarded by device.
     unsafe
     {
-        result = i2c_reg_write(PCA9540B_I2C_DEVICE_ADDR, 0, ch);
+        result = i2c_reg_write(i_i2c_client, PCA9540B_I2C_DEVICE_ADDR, 0, ch);
     }
 
     assert(result == I2C_REGOP_SUCCESS && msg("I2C Mux I2C write reg failed"));
 }
 
 /* Configures the external audio hardware at startup */
-void AudioHwInit()
+void AudioHwInit(client interface i2c_master_if i_i2c_client)
 {
     i2c_regop_res_t result;
 
     // Wait for power supply to come up.
     delay_milliseconds(100);
 
-    /* Wait until global is set */
-    unsafe
-    {
-        while(!(unsigned) i_i2c_client);
-    }
-
 
     if(USE_FRACTIONAL_N)
     {
         /* Set external I2C mux to CS2100 */
-        SetI2CMux(PCA9540B_CTRL_CHAN_1);
+        SetI2CMux(i_i2c_client, PCA9540B_CTRL_CHAN_1);
 
         unsafe
         {
@@ -292,26 +283,26 @@ void AudioHwInit()
     }
 
     /* Set external I2C mux to DACs/ADCs */
-    SetI2CMux(PCA9540B_CTRL_CHAN_0);
+    SetI2CMux(i_i2c_client, PCA9540B_CTRL_CHAN_0);
 
     /* Reset DAC & ADC registers. Just in case we've run another build config */
-    WriteAllDacRegs(PCM5122_PAGE,           0x00); // Set Page 0.
-    WriteAllDacRegs(PCM5122_STANDBY_PWDN,   0x10); // Request standby mode
+    WriteAllDacRegs(i_i2c_client, PCM5122_PAGE,           0x00); // Set Page 0.
+    WriteAllDacRegs(i_i2c_client, PCM5122_STANDBY_PWDN,   0x10); // Request standby mode
     delay_milliseconds(1);
-    WriteAllDacRegs(PCM5122_RESET,          0x11); // Reset dac modules and registers to defaults. but this sets standby to 0 so chip starts up ... need to put back in standby.
-    WriteAllDacRegs(PCM5122_STANDBY_PWDN,   0x10); // Request standby mode
-    WriteAllAdcRegs(PCM1865_RESET, 0xFE);
+    WriteAllDacRegs(i_i2c_client, PCM5122_RESET,          0x11); // Reset dac modules and registers to defaults. but this sets standby to 0 so chip starts up ... need to put back in standby.
+    WriteAllDacRegs(i_i2c_client, PCM5122_STANDBY_PWDN,   0x10); // Request standby mode
+    WriteAllAdcRegs(i_i2c_client, PCM1865_RESET, 0xFE);
 
     /*
      * Setup ADCs
      */
     /* Setup is ADC is I2S slave, MCLK slave, I2S_DOUT2 on GPIO0. ADC sets up clocking automatically based on applied input clocks */
-    WriteAllAdcRegs(PCM1865_ADC2_IP_SEL_L,  0x42); // Set ADC2 Left input to come from VINL2[SE] input.
-    WriteAllAdcRegs(PCM1865_ADC2_IP_SEL_R,  0x42); // Set ADC2 Right input to come from VINR2[SE] input.
-    WriteAllAdcRegs(PCM1865_PGA_VAL_CH1_L,  0xFC);
-    WriteAllAdcRegs(PCM1865_PGA_VAL_CH1_R,  0xFC);
-    WriteAllAdcRegs(PCM1865_PGA_VAL_CH2_L,  0xFC);
-    WriteAllAdcRegs(PCM1865_PGA_VAL_CH2_R,  0xFC);
+    WriteAllAdcRegs(i_i2c_client, PCM1865_ADC2_IP_SEL_L,  0x42); // Set ADC2 Left input to come from VINL2[SE] input.
+    WriteAllAdcRegs(i_i2c_client, PCM1865_ADC2_IP_SEL_R,  0x42); // Set ADC2 Right input to come from VINR2[SE] input.
+    WriteAllAdcRegs(i_i2c_client, PCM1865_PGA_VAL_CH1_L,  0xFC);
+    WriteAllAdcRegs(i_i2c_client, PCM1865_PGA_VAL_CH1_R,  0xFC);
+    WriteAllAdcRegs(i_i2c_client, PCM1865_PGA_VAL_CH2_L,  0xFC);
+    WriteAllAdcRegs(i_i2c_client, PCM1865_PGA_VAL_CH2_R,  0xFC);
 
     if (XUA_PCM_FORMAT_I2S)
     {
@@ -331,23 +322,23 @@ void AudioHwInit()
         }
 
         /* Only enable DOUT2 in I2S mode. In TDM mode it doesn't really make sense, wastes power (and data sheet states "not available") */
-        WriteAllAdcRegs(PCM1865_GPIO01_FUN,     0x05); // Set GPIO1 as normal polarity, GPIO1 functionality. Set GPIO0 as normal polarity, DOUT2 functionality.
-        WriteAllAdcRegs(PCM1865_GPIO01_DIR,     0x04); // Set GPIO1 as an input. Set GPIO0 as an output (used for I2S DOUT2).
+        WriteAllAdcRegs(i_i2c_client, PCM1865_GPIO01_FUN,     0x05); // Set GPIO1 as normal polarity, GPIO1 functionality. Set GPIO0 as normal polarity, DOUT2 functionality.
+        WriteAllAdcRegs(i_i2c_client, PCM1865_GPIO01_DIR,     0x04); // Set GPIO1 as an input. Set GPIO0 as an output (used for I2S DOUT2).
 
         /* RX_WLEN:        24-bit (default)
          * TDM_LRCLK_MODE: 0 (default)
          * TX_WLEN:        XUA_I2S_N_BITS
          * FMT:            I2S
          */
-        WriteAllAdcRegs(PCM1865_FMT, 0b01000000 | (tx_wlen << 2));
+        WriteAllAdcRegs(i_i2c_client, PCM1865_FMT, 0b01000000 | (tx_wlen << 2));
     }
     else
     {
         /* Note, the ADCs do not support TDM with channel slots other than 32bit i.e. 256fs */
         /* Write offset such that ADC's do not drive against eachother */
-        result = i2c_reg_write(PCM1865_0_I2C_DEVICE_ADDR, PCM1865_TX_TDM_OFFSET, 1);
+        result = i2c_reg_write(i_i2c_client, PCM1865_0_I2C_DEVICE_ADDR, PCM1865_TX_TDM_OFFSET, 1);
         assert(result == I2C_REGOP_SUCCESS && msg("ADC I2C write reg failed"));
-        result = i2c_reg_write(PCM1865_1_I2C_DEVICE_ADDR, PCM1865_TX_TDM_OFFSET, 129);
+        result = i2c_reg_write(i_i2c_client, PCM1865_1_I2C_DEVICE_ADDR, PCM1865_TX_TDM_OFFSET, 129);
         assert(result == I2C_REGOP_SUCCESS && msg("ADC I2C write reg failed"));
 
         if(CODEC_MASTER)
@@ -358,7 +349,7 @@ void AudioHwInit()
              * TX_WLEN:        32-bit
              * FMT:            TDM/DSP
              */
-            WriteAllAdcRegs(PCM1865_FMT, 0b01000011);
+            WriteAllAdcRegs(i_i2c_client, PCM1865_FMT, 0b01000011);
         }
         else
         {
@@ -368,12 +359,12 @@ void AudioHwInit()
              * TX_WLEN:        32-bit
              * FMT:            TDM/DSP
              */
-            WriteAllAdcRegs(PCM1865_FMT, 0b01010011);
+            WriteAllAdcRegs(i_i2c_client, PCM1865_FMT, 0b01010011);
         }
 
         /* TDM_OSEL:       4ch TDM
          */
-        WriteAllAdcRegs(PCM1865_TDM_OSEL, 0b00000001);
+        WriteAllAdcRegs(i_i2c_client, PCM1865_TDM_OSEL, 0b00000001);
     }
 
     /*
@@ -385,43 +376,43 @@ void AudioHwInit()
          * We write some values to all DACs just to avoid any difference in performance */
 
         // Disable Auto Clock Configuration
-        WriteAllDacRegs(PCM5122_CLK_DET, 0x72);
+        WriteAllDacRegs(i_i2c_client, PCM5122_CLK_DET, 0x72);
 
         // PLL P divider to 2
-        WriteAllDacRegs(PCM5122_PLL_P, 0x01);
+        WriteAllDacRegs(i_i2c_client, PCM5122_PLL_P, 0x01);
 
         // PLL J divider to 8
-        WriteAllDacRegs(PCM5122_PLL_J, 0x08);
+        WriteAllDacRegs(i_i2c_client, PCM5122_PLL_J, 0x08);
 
         // PLL D1 divider to 00
-        WriteAllDacRegs(PCM5122_PLL_D1, 0x00);
+        WriteAllDacRegs(i_i2c_client, PCM5122_PLL_D1, 0x00);
 
         // PLL D2 divider to 00
-        WriteAllDacRegs(PCM5122_PLL_D2, 0x00);
+        WriteAllDacRegs(i_i2c_client, PCM5122_PLL_D2, 0x00);
 
         // PLL R divider to 1
-        WriteAllDacRegs(PCM5122_PLL_R, 0x00);
+        WriteAllDacRegs(i_i2c_client, PCM5122_PLL_R, 0x00);
 
         // NB: Overall PLL Multiplier is x4.
         // miniDSP CLK divider (NMAC) to 2
-        WriteAllDacRegs(PCM5122_DDSP, 0x01);
+        WriteAllDacRegs(i_i2c_client, PCM5122_DDSP, 0x01);
 
         //DAC CLK divider to 16
-        WriteAllDacRegs(PCM5122_DDAC, 0x0F);
+        WriteAllDacRegs(i_i2c_client, PCM5122_DDAC, 0x0F);
 
         // NCP CLK divider to 4
-        WriteAllDacRegs(PCM5122_DNCP, 0x03);
+        WriteAllDacRegs(i_i2c_client, PCM5122_DNCP, 0x03);
 
         // IDAC2
-        WriteAllDacRegs(PCM5122_IDAC_LS, 0x00);
+        WriteAllDacRegs(i_i2c_client, PCM5122_IDAC_LS, 0x00);
     }
     else
     {
-        WriteAllDacRegs(PCM5122_CLK_DET,        0x02); // disable clock autoset.
-        WriteAllDacRegs(PCM5122_PLL,            0x00); // disable the internal PLL.
-        WriteAllDacRegs(PCM5122_AUTO_MUTE,      0x00); // disable auto mute.
-        WriteAllDacRegs(PCM5122_DDSP,           0x00); // sets DSP clock divider NMAC to 1.
-        WriteAllDacRegs(PCM5122_DNCP,           0x03); // sets charge pump divider NCP to 4. (same for all modes, this governs charge pump frequency (divided from *DAC* clock)).
+        WriteAllDacRegs(i_i2c_client, PCM5122_CLK_DET,        0x02); // disable clock autoset.
+        WriteAllDacRegs(i_i2c_client, PCM5122_PLL,            0x00); // disable the internal PLL.
+        WriteAllDacRegs(i_i2c_client, PCM5122_AUTO_MUTE,      0x00); // disable auto mute.
+        WriteAllDacRegs(i_i2c_client, PCM5122_DDSP,           0x00); // sets DSP clock divider NMAC to 1.
+        WriteAllDacRegs(i_i2c_client, PCM5122_DNCP,           0x03); // sets charge pump divider NCP to 4. (same for all modes, this governs charge pump frequency (divided from *DAC* clock)).
     }
 
     int alen = 0b11;
@@ -441,7 +432,7 @@ void AudioHwInit()
     if(XUA_PCM_FORMAT_I2S)
     {
         /* Set Format to I2S with word length XUA_I2S_N_BITS */
-        WriteAllDacRegs(PCM5122_I2S, 0b00000000 | (alen));
+        WriteAllDacRegs(i_i2c_client, PCM5122_I2S, 0b00000000 | (alen));
     }
     else
     {
@@ -450,51 +441,51 @@ void AudioHwInit()
          * TDM MODE: SET ALL 1-2, TDM SOURCE 3-4
          */
         /* Set Format to TDM/DSP with word length XUA_I2S_N_BITS */
-        WriteAllDacRegs(PCM5122_I2S, 0b00010000 | (alen));
+        WriteAllDacRegs(i_i2c_client, PCM5122_I2S, 0b00010000 | (alen));
 
         /* Set offset to appropriately for each DAC */
         for(int dacAddr = PCM5122_0_I2C_DEVICE_ADDR; dacAddr < (PCM5122_0_I2C_DEVICE_ADDR+4); dacAddr++)
         {
             const int dacOffset = dacAddr - PCM5122_0_I2C_DEVICE_ADDR;
-            result = i2c_reg_write(dacAddr, PCM5122_I2S_SHIFT, 1 + (dacOffset * XUA_I2S_N_BITS * 2));
+            result = i2c_reg_write(i_i2c_client, dacAddr, PCM5122_I2S_SHIFT, 1 + (dacOffset * XUA_I2S_N_BITS * 2));
             assert(result == I2C_REGOP_SUCCESS && msg("DAC I2C write reg failed"));
         }
     }
 
     if(I2S_LOOPBACK)
     {
-        WriteAllAdcRegs(PCM1865_RESET, 0xFE);           // Reset all ADC registers.
-        WriteAllAdcRegs(PCM1865_PWR_STATE, 0x77);       // Sets ADCs into powerdown.
-        WriteAllAdcRegs(PCM1865_FMT, 0b01010011);       // Sets 1/256 TDM mode, 32bit TX_WLEN
-        WriteAllAdcRegs(PCM1865_TX_TDM_OFFSET, 191);    // Sets TX_TDM_OFFSET to 191
+        WriteAllAdcRegs(i_i2c_client, PCM1865_RESET, 0xFE);           // Reset all ADC registers.
+        WriteAllAdcRegs(i_i2c_client, PCM1865_PWR_STATE, 0x77);       // Sets ADCs into powerdown.
+        WriteAllAdcRegs(i_i2c_client, PCM1865_FMT, 0b01010011);       // Sets 1/256 TDM mode, 32bit TX_WLEN
+        WriteAllAdcRegs(i_i2c_client, PCM1865_TX_TDM_OFFSET, 191);    // Sets TX_TDM_OFFSET to 191
                                                         // Note, expect ADCs to clash with DAC channels 7/8 in loopback TDM mode
 
-        WriteAllDacRegs(PMC5122_DE_SDOUT, 0x01);
-        WriteAllDacRegs(PCM5122_GPIO_OUT_SEL, 0x07);
-        WriteAllDacRegs(PMC5122_GPIO_ENABLE, 0x20);
+        WriteAllDacRegs(i_i2c_client, PMC5122_DE_SDOUT, 0x01);
+        WriteAllDacRegs(i_i2c_client, PCM5122_GPIO_OUT_SEL, 0x07);
+        WriteAllDacRegs(i_i2c_client, PMC5122_GPIO_ENABLE, 0x20);
     }
 }
 
 /* Configures the external audio hardware for the required sample frequency */
-void AudioHwConfig(unsigned samFreq, unsigned mClk, unsigned dsdMode, unsigned sampRes_DAC, unsigned sampRes_ADC)
+void AudioHwConfig(client interface i2c_master_if i_i2c_client, unsigned samFreq, unsigned mClk, unsigned dsdMode, unsigned sampRes_DAC, unsigned sampRes_ADC)
 {
-    WriteAllDacRegs(PCM5122_MUTE,           0x11); // Soft Mute both channels
+    WriteAllDacRegs(i_i2c_client, PCM5122_MUTE,           0x11); // Soft Mute both channels
     delay_milliseconds(3);  // Wait for mute to take effect. This takes 104 samples, this is 2.4ms @ 44.1kHz. So lets say 3ms to cover everything.
-    WriteAllDacRegs(PCM5122_STANDBY_PWDN,   0x10); // Request standby mode while we change regs
+    WriteAllDacRegs(i_i2c_client, PCM5122_STANDBY_PWDN,   0x10); // Request standby mode while we change regs
 
     if (USE_FRACTIONAL_N)
     {
         timer t;
         unsigned time;
 
-        SetI2CMux(PCA9540B_CTRL_CHAN_1);
-        PllMult(mClk, PLL_SYNC_FREQ, i_i2c_client);
+        SetI2CMux(i_i2c_client, PCA9540B_CTRL_CHAN_1);
+        PllMult(i_i2c_client, mClk, PLL_SYNC_FREQ);
 
         /* Allow some time for mclk to lock and MCLK to stabilise - this is important to avoid glitches at start of stream */
         t :> time;
         t when timerafter(time+AUDIO_PLL_LOCK_DELAY) :> void;
 
-        SetI2CMux(PCA9540B_CTRL_CHAN_0);
+        SetI2CMux(i_i2c_client, PCA9540B_CTRL_CHAN_0);
     }
     else if(XUA_USE_SW_PLL)
     {
@@ -514,30 +505,30 @@ void AudioHwConfig(unsigned samFreq, unsigned mClk, unsigned dsdMode, unsigned s
 
         //OSR CLK divider is set to one (as its based on the output from the DAC CLK, which is already PLL/16)
         regVal = (mClk/(samFreq * I2S_CHANS_PER_FRAME * 32))-1;
-        result |= i2c_reg_write(dacAddr, PCM5122_DOSR, regVal);
+        result |= i2c_reg_write(i_i2c_client, dacAddr, PCM5122_DOSR, regVal);
 
         //# FS setting should be set based on sample rate
         regVal = samFreq/96000;
-        result |= i2c_reg_write(dacAddr, PCM5122_I16E_FS, regVal);
+        result |= i2c_reg_write(i_i2c_client, dacAddr, PCM5122_I16E_FS, regVal);
 
         //IDAC1  sets the number of miniDSP instructions per clock.
         regVal = 192000/samFreq;
-        result |= i2c_reg_write(dacAddr, PCM5122_IDAC_MS, regVal);
+        result |= i2c_reg_write(i_i2c_client, dacAddr, PCM5122_IDAC_MS, regVal);
 
         /* Master mode setting */
         // BCK, LRCK output
-        result |= i2c_reg_write(dacAddr, PCM5122_BCK_LRCLK, 0x11);
+        result |= i2c_reg_write(i_i2c_client, dacAddr, PCM5122_BCK_LRCLK, 0x11);
 
         // Master mode BCK divider setting (making 64fs)
         regVal = (mClk/(samFreq * I2S_CHANS_PER_FRAME * XUA_I2S_N_BITS))-1;
-        result |= i2c_reg_write(dacAddr, PCM5122_DBCK, regVal);
+        result |= i2c_reg_write(i_i2c_client, dacAddr, PCM5122_DBCK, regVal);
 
         // Master mode LRCK divider setting (divide BCK by a further 64 (256 for TDM) to make 1fs)
         regVal = (I2S_CHANS_PER_FRAME * XUA_I2S_N_BITS)-1;
-        result |= i2c_reg_write(dacAddr, PCM5122_DLRCK, regVal);
+        result |= i2c_reg_write(i_i2c_client, dacAddr, PCM5122_DLRCK, regVal);
 
         // Master mode BCK, LRCK divider reset release
-        result |= i2c_reg_write(dacAddr, PCM5122_RBCK_LRCLK, 0x3f);
+        result |= i2c_reg_write(i_i2c_client, dacAddr, PCM5122_RBCK_LRCLK, 0x3f);
 
         assert(result == I2C_REGOP_SUCCESS && msg("DAC I2C write reg failed"));
     }
@@ -547,7 +538,7 @@ void AudioHwConfig(unsigned samFreq, unsigned mClk, unsigned dsdMode, unsigned s
         // The following divider generates the DAC clock from the master clock.
         // DAC clock needs to be 5.6448MHz for 44.1/88.2/176.4kHz SRs and 6.144MHz for 48/96/192 SRs.
         // So if using 22.5792/24.576 MCLK this needs to be 4. For 45.1584/49.152MHz this needs to be 8. Note to set a divider of 4 we write 0x03.
-        WriteAllDacRegs(PCM5122_DDAC,           0x03); // sets DAC clock divider NDAC to 4.
+        WriteAllDacRegs(i_i2c_client, PCM5122_DDAC,           0x03); // sets DAC clock divider NDAC to 4.
 
         // IDAC is how many DSP clocks are present in an audio frame.
         // DSP clock in this system is equal to Master clock (as NMAC = 1 set above).
@@ -558,36 +549,36 @@ void AudioHwConfig(unsigned samFreq, unsigned mClk, unsigned dsdMode, unsigned s
 
         if(samFreq <= 48000)
         {
-            WriteAllDacRegs(PCM5122_DOSR,         0x07); // Set OSR divider to 8.
-            WriteAllDacRegs(PCM5122_I16E_FS,      0x00); // Set FS to single speed mode
-            WriteAllDacRegs(PCM5122_IDAC_MS,      0x02); // IDAC MS Byte
-            WriteAllDacRegs(PCM5122_IDAC_LS,      0x00); // IDAC LS Byte
+            WriteAllDacRegs(i_i2c_client, PCM5122_DOSR,         0x07); // Set OSR divider to 8.
+            WriteAllDacRegs(i_i2c_client, PCM5122_I16E_FS,      0x00); // Set FS to single speed mode
+            WriteAllDacRegs(i_i2c_client, PCM5122_IDAC_MS,      0x02); // IDAC MS Byte
+            WriteAllDacRegs(i_i2c_client, PCM5122_IDAC_LS,      0x00); // IDAC LS Byte
         }
         else if((samFreq > 48000) && (samFreq <= 96000))
         {
-            WriteAllDacRegs(PCM5122_DOSR,         0x03); // Set OSR divider to 4.
-            WriteAllDacRegs(PCM5122_I16E_FS,      0x01); // Set FS to double speed mode
-            WriteAllDacRegs(PCM5122_IDAC_MS,      0x01); // IDAC MS Byte
-            WriteAllDacRegs(PCM5122_IDAC_LS,      0x00); // IDAC LS Byte
+            WriteAllDacRegs(i_i2c_client, PCM5122_DOSR,         0x03); // Set OSR divider to 4.
+            WriteAllDacRegs(i_i2c_client, PCM5122_I16E_FS,      0x01); // Set FS to double speed mode
+            WriteAllDacRegs(i_i2c_client, PCM5122_IDAC_MS,      0x01); // IDAC MS Byte
+            WriteAllDacRegs(i_i2c_client, PCM5122_IDAC_LS,      0x00); // IDAC LS Byte
         }
         else if((samFreq > 96000) && (samFreq <= 192000))
         {
-            WriteAllDacRegs(PCM5122_DOSR,         0x01); // Set OSR divider to 2.
-            WriteAllDacRegs(PCM5122_I16E_FS,      0x02); // Set FS to quad speed mode
-            WriteAllDacRegs(PCM5122_IDAC_MS,      0x00); // IDAC MS Byte
-            WriteAllDacRegs(PCM5122_IDAC_LS,      0x80); // IDAC LS Byte
+            WriteAllDacRegs(i_i2c_client, PCM5122_DOSR,         0x01); // Set OSR divider to 2.
+            WriteAllDacRegs(i_i2c_client, PCM5122_I16E_FS,      0x02); // Set FS to quad speed mode
+            WriteAllDacRegs(i_i2c_client, PCM5122_IDAC_MS,      0x00); // IDAC MS Byte
+            WriteAllDacRegs(i_i2c_client, PCM5122_IDAC_LS,      0x80); // IDAC LS Byte
         }
         else if((samFreq > 192000) && (samFreq <= 384000)) // In case we ever use this mode.
         {
-            WriteAllDacRegs(PCM5122_DOSR,         0x00); // Set OSR divider to 1.
-            WriteAllDacRegs(PCM5122_I16E_FS,      0x03); // Set FS to octal speed mode
-            WriteAllDacRegs(PCM5122_IDAC_MS,      0x00); // IDAC MS Byte
-            WriteAllDacRegs(PCM5122_IDAC_LS,      0x40); // IDAC LS Byte
+            WriteAllDacRegs(i_i2c_client, PCM5122_DOSR,         0x00); // Set OSR divider to 1.
+            WriteAllDacRegs(i_i2c_client, PCM5122_I16E_FS,      0x03); // Set FS to octal speed mode
+            WriteAllDacRegs(i_i2c_client, PCM5122_IDAC_MS,      0x00); // IDAC MS Byte
+            WriteAllDacRegs(i_i2c_client, PCM5122_IDAC_LS,      0x40); // IDAC LS Byte
         }
     }
 
-    WriteAllDacRegs(PCM5122_STANDBY_PWDN,   0x00); // Set DAC in run mode (no standby or powerdown)
+    WriteAllDacRegs(i_i2c_client, PCM5122_STANDBY_PWDN,   0x00); // Set DAC in run mode (no standby or powerdown)
     delay_milliseconds(1);
-    WriteAllDacRegs(PCM5122_MUTE,           0x00); // Un-mute both channels
+    WriteAllDacRegs(i_i2c_client, PCM5122_MUTE,           0x00); // Un-mute both channels
 }
 
