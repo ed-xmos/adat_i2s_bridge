@@ -42,8 +42,8 @@ void adat_tx_shutdown(chanend c_adat_tx);
 #pragma unsafe arrays
 static inline void send_adat_tx_samples(chanend c_adat_tx, const unsigned adat_tx_samples[], int smux)
 {
-    static unsigned adat_counter = 0;
-    static unsigned adat_tx_muxed[8];
+    static unsigned adat_counter = 0; // This must persist in between calls
+    static unsigned adat_tx_muxed[8]; // This must exist outside of this function scope
 
     // Do some re-arranging for SMUX..
     unsafe{

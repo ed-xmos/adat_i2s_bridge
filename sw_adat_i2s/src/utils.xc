@@ -67,18 +67,17 @@ void gpio(chanend c_sr_change_i2s, chanend c_smux_change_adat_rx, in port p_butt
 
     // LEDs
     const unsigned led_sr = 0x1;
-    const unsigned led_sm = 0x4;
+    const unsigned led_sm = 0x8;
 
     timer tmr_leds;
     int32_t led_transition_time;
     tmr_leds :> led_transition_time;
     unsigned led_val = 0; // all off
-    unsigned led_sr_sequence_idx = 0;
-    unsigned led_rx_sm_sequence_idx = 0;
+    unsigned led_sequence_idx = 0;
 
     // State
-    unsigned sr_i2s_idx = 0;
-    unsigned adat_rx_smux_idx = 0;
+    unsigned sr_i2s_idx = 1; // 48k
+    unsigned adat_rx_smux_idx = 0; // no SMUX
 
     while (1) {
         select {
@@ -103,24 +102,20 @@ void gpio(chanend c_sr_change_i2s, chanend c_smux_change_adat_rx, in port p_butt
             break;
 
             case tmr_leds when timerafter(led_transition_time) :> void:
-                led_transition_time += XS1_TIMER_KHZ * 200;
+                led_transition_time += XS1_TIMER_KHZ * 150;
 
-                if(led_sr_sequence_idx < 2 * (sr_i2s_idx+1)){
-                    if(led_sr_sequence_idx % 2 == 0) led_val |= led_sr;
+                if(led_sequence_idx < 2 * (sr_i2s_idx+1)){
+                    if(led_sequence_idx % 2 == 0) led_val |= led_sr;
                     else led_val &= ~led_sr;
                 }
-                led_sr_sequence_idx++;
-                if (led_sr_sequence_idx > 2 * (sr_i2s_idx+1) + 4){
-                    led_sr_sequence_idx = 0;
-                }
 
-                if(led_rx_sm_sequence_idx < 2 * (adat_rx_smux_idx+1)){
-                    if(led_rx_sm_sequence_idx % 2 == 0) led_val |= led_sm;
+                if(led_sequence_idx < 2 * (adat_rx_smux_idx+1)){
+                    if(led_sequence_idx % 2 == 0) led_val |= led_sm;
                     else led_val &= ~led_sm;
                 }
-                led_rx_sm_sequence_idx++;
-                if (led_rx_sm_sequence_idx > 2 * (adat_rx_smux_idx+1) + 4){
-                    led_rx_sm_sequence_idx = 0;
+                led_sequence_idx++;
+                if (led_sequence_idx > 2 * 7){
+                    led_sequence_idx = 0;
                 }
 
                 p_leds <: led_val;

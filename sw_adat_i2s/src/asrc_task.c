@@ -18,8 +18,10 @@
 
 #include "app_config.h"
 
-#define dprintf(...)   printf(__VA_ARGS__)
-// #define dprintf(...)
+#ifndef dprintf
+// #define dprintf(...)   printf(__VA_ARGS__)
+#define dprintf(...)
+#endif
 
 unsigned asrc_channel_count = 8;                 // Current channel count (dynamic). Needs to be global so can be read by pull_samples
 
