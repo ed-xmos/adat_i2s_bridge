@@ -5,6 +5,7 @@
 
 #include "app_config.h"
 #include "adat_wrapper.h"
+#include "utils.h"
 
 
 typedef struct button_state_t{

@@ -7,6 +7,12 @@
 
 #include "app_config.h"
 
+enum audio_port_idx{
+    IO_I2S = 0,
+    IO_ADAT_RX,
+    IO_ADAT_TX
+};
+
 #define RATE_LOWER(rate, ppm) ((uint32_t)((float)rate * (1.0 - (float)ppm / 1e6) + 0.5))
 #define RATE_HIGHER(rate, ppm) ((uint32_t)((float)rate * (1.0 + (float)ppm / 1e6)+ 0.5))
 #define CHECK_RATE(sps, rate, ppm) if (sps > RATE_LOWER(rate, ppm) && sps < RATE_HIGHER(rate, ppm)){return rate;}
