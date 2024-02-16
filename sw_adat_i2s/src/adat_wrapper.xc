@@ -221,16 +221,36 @@ void adat_tx_task(chanend c_adat_tx, buffered out port:32 p_adat_out){
 }
 
 
-void adat_tx_startup(chanend c_adat_tx, unsigned adat_tx_smux, int32_t *adat_tx_samples){
+int adat_tx_startup(chanend c_adat_tx, unsigned sample_rate, int32_t *adat_tx_samples){
+    // Setup ADAT Tx
+    // ADAT parameters ...
+    //
+    // adat_oversampling =  256 for MCLK = 12M288 or 11M2896
+    //                   =  512 for MCLK = 24M576 or 22M5792
+    //                   = 1024 for MCLK = 49M152 or 45M1584
+    //
+    // adatSmuxMode   = 1 for FS =  44K1 or  48K0
+    //                = 2 for FS =  88K2 or  96K0
+    //                = 4 for FS = 176K4 or 192K0
+
+    int adat_tx_smux = 1;
+    if(sample_rate % 48000 == 0){
+        adat_tx_smux = sample_rate / 48000;
+    } else {
+        adat_tx_smux = sample_rate / 44100;
+    }
+
     outuint(c_adat_tx, ADAT_MULTIPLIER);
     outuint(c_adat_tx, adat_tx_smux);
-    // Cast to unsigned so we can pass over channel
+    // Cast to unsafe pointer then to unsigned so we can pass over channel
     unsafe{
         volatile unsigned * unsafe sample_ptr = (volatile unsigned * unsafe)adat_tx_samples;
         outuint(c_adat_tx, (unsigned) sample_ptr);
     }
 
-    printstr("ADAT tx init smux: "); printintln(adat_tx_smux);
+    printstr("ADAT tx startup smux: "); printintln(adat_tx_smux);
+
+    return adat_tx_smux;
 }
 
 

@@ -81,7 +81,7 @@ void audio_hub( chanend c_adat_tx,
     int adat_tx_smux = SMUX_NONE;
     int32_t adat_tx_samples[ADAT_MAX_SAMPLES] = {0};
 
-    adat_tx_startup(c_adat_tx, adat_tx_smux, adat_tx_samples);
+    adat_tx_startup(c_adat_tx, i2s_set_sample_rate, adat_tx_samples);
 
     while(1) {
         select{
@@ -97,7 +97,7 @@ void audio_hub( chanend c_adat_tx,
 
                 reset_fifo();
 
-                adat_tx_startup(c_adat_tx, adat_tx_smux, adat_tx_samples);
+                adat_tx_smux = adat_tx_startup(c_adat_tx, i2s_set_sample_rate, adat_tx_samples);
             break;
 
             case i_i2s.restart_check() -> i2s_restart_t restart:
@@ -123,8 +123,10 @@ void audio_hub( chanend c_adat_tx,
             break;
 
             case i_i2s.receive(size_t num_in, int32_t samples[num_in]):
-                memcpy(adat_tx_samples, samples, num_in * sizeof(int32_t));
-                send_adat_tx_samples(c_adat_tx, (unsigned *)adat_tx_samples, adat_tx_smux);
+                if(mute == 0){
+                    memcpy(adat_tx_samples, samples, num_in * sizeof(int32_t));
+                    send_adat_tx_samples(c_adat_tx, (unsigned *)adat_tx_samples, adat_tx_smux);
+                }
             break;
 
             case i_i2s.send(size_t num_out, int32_t samples[num_out]):
@@ -163,11 +165,6 @@ void audio_hub( chanend c_adat_tx,
 
                             i2s_set_sample_rate = new_sr;
                             i2s_master_sample_rate_change = 1;
-                        }
-                        if(id == IO_ADAT_TX){
-                            unsigned new_smux;
-                            c_sr_change :> new_smux;
-                            printstr("adat tx smux: ");printintln(new_smux);
                         }
                     break;
                     // Fallthrough

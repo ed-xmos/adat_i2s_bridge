@@ -34,17 +34,7 @@ void adat_rx_task(chanend c_adat_rx, buffered in port:32 p_adat_in);
 
 void adat_tx_task(chanend c_adat_tx, buffered out port:32 p_adat_out);
 
-// Setup ADAT Tx
-// ADAT parameters ...
-//
-// adat_oversampling =  256 for MCLK = 12M288 or 11M2896
-//                   =  512 for MCLK = 24M576 or 22M5792
-//                   = 1024 for MCLK = 49M152 or 45M1584
-//
-// adatSmuxMode   = 1 for FS =  44K1 or  48K0
-//                = 2 for FS =  88K2 or  96K0
-//                = 4 for FS = 176K4 or 192K0
-void adat_tx_startup(chanend c_adat_tx, unsigned adat_tx_smux, int32_t *adat_tx_samples);
+int adat_tx_startup(chanend c_adat_tx, unsigned sample_rate, int32_t *adat_tx_samples);
 
 void adat_tx_shutdown(chanend c_adat_tx);
 
@@ -53,7 +43,7 @@ void adat_tx_shutdown(chanend c_adat_tx);
 static inline void send_adat_tx_samples(chanend c_adat_tx, const unsigned adat_tx_samples[], int smux)
 {
     static unsigned adat_counter = 0;
-    unsigned adat_tx_muxed[8];
+    static unsigned adat_tx_muxed[8];
 
     // Do some re-arranging for SMUX..
     unsafe{
