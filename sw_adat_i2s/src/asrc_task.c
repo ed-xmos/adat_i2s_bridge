@@ -18,6 +18,9 @@
 
 #include "app_config.h"
 
+#define dprintf(...)   printf(__VA_ARGS__)
+// #define dprintf(...)
+
 unsigned asrc_channel_count = 8;                 // Current channel count (dynamic). Needs to be global so can be read by pull_samples
 
  __attribute__ ((weak))
@@ -268,7 +271,7 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
         int audio_format_change = 0;
 
         // Frequency info
-        printf("Input fs: %lu Output fs: %lu\n", input_frequency, output_frequency);
+        dprintf("Input fs: %lu Output fs: %lu\n", input_frequency, output_frequency);
         int inputFsCode = fs_code(input_frequency);
         int outputFsCode = fs_code(output_frequency);
         int interpolation_ticks = interpolation_ticks_2D[inputFsCode][outputFsCode];
@@ -276,18 +279,18 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
         ///// FIFO init
         asynchronous_fifo_init(fifo, asrc_channel_count, FIFO_LENGTH);
         asynchronous_fifo_init_PID_fs_codes(fifo, inputFsCode, outputFsCode);
-        printf("FIFO init channels: %d\n", asrc_channel_count);
+        dprintf("FIFO init channels: %d\n", asrc_channel_count);
 
         // SCHEDULER init
         schedule_info_t schedule[MAX_ASRC_THREADS];
         int num_jobs = calculate_job_share(asrc_channel_count, schedule);
-        printf("num_jobs: %d, MAX_ASRC_THREADS: %d, asrc_channel_count: %d\n", num_jobs, MAX_ASRC_THREADS, asrc_channel_count);
+        dprintf("num_jobs: %d, MAX_ASRC_THREADS: %d, asrc_channel_count: %d\n", num_jobs, MAX_ASRC_THREADS, asrc_channel_count);
         for(int i = 0; i < num_jobs; i++){
-            printf("schedule: %d, num_channels: %d, channel_start_idx: %d\n", i, schedule[i].num_channels, schedule[i].channel_start_idx);
+            dprintf("schedule: %d, num_channels: %d, channel_start_idx: %d\n", i, schedule[i].num_channels, schedule[i].channel_start_idx);
         }
 
         int max_channels_per_instance = schedule[0].num_channels;
-        printf("max_channels_per_instance: %d\n", max_channels_per_instance);
+        dprintf("max_channels_per_instance: %d\n", max_channels_per_instance);
 
         // ASRC init
         asrc_state_t sASRCState[MAX_ASRC_THREADS][SRC_MAX_SRC_CHANNELS_PER_INSTANCE];                                   // ASRC state machine state
@@ -295,7 +298,6 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
         asrc_ctrl_t sASRCCtrl[MAX_ASRC_THREADS][SRC_MAX_SRC_CHANNELS_PER_INSTANCE];                                     // Control structure
         asrc_adfir_coefs_t asrc_adfir_coefs[MAX_ASRC_THREADS];                                                          // Adaptive filter coefficients
 
-        int error = 0;
         uint64_t fs_ratio = 0;
         int ideal_fs_ratio = 0;
         int error = 0;
@@ -308,17 +310,18 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
                 sASRCCtrl[instance][ch].piADCoefs                 = asrc_adfir_coefs[instance].iASRCADFIRCoefs;
             }
             fs_ratio = asrc_init(inputFsCode, outputFsCode, sASRCCtrl[instance], max_channels_per_instance, SRC_N_IN_SAMPLES, SRC_DITHER_SETTING);
-            printf("ASRC init instance: %d ptr: %p\n", instance, sASRCCtrl[instance]);
+            dprintf("ASRC init instance: %d ptr: %p\n", instance, sASRCCtrl[instance]);
         }
 
         // Timing check vars. Includes ASRC, timestamp interpolation and FIFO push
         int32_t asrc_process_time_limit = (XS1_TIMER_HZ / input_frequency) * SRC_N_IN_SAMPLES;
-        printf("ASRC process_time_limit: %ld\n", asrc_process_time_limit);
+        (void)asrc_process_time_limit;
+        dprintf("ASRC process_time_limit: %ld\n", asrc_process_time_limit);
         int32_t asrc_peak_processing_time = 0;
 
 
         ideal_fs_ratio = (fs_ratio + (1<<31)) >> 32;
-        printf("ideal_fs_ratio: %d\n", ideal_fs_ratio);
+        dprintf("ideal_fs_ratio: %d\n", ideal_fs_ratio);
 
         const int xscope_used = 0; // Vestige of ASRC API. TODO - cleanup in future when lib_src is tidied
 
@@ -351,7 +354,7 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
             // TODO Remove me. This is here to monitor PID loop convergence during dev
             static int print_counter = 0;
             if(++print_counter == 50000){
-                printf("depth: %lu\n", (fifo->write_ptr - fifo->read_ptr + fifo->max_fifo_depth) % fifo->max_fifo_depth);
+                dprintf("depth: %lu\n", (fifo->write_ptr - fifo->read_ptr + fifo->max_fifo_depth) % fifo->max_fifo_depth);
                 print_counter = 0;
             }
 
