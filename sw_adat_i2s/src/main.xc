@@ -128,7 +128,7 @@ void audio_hub( chanend c_adat_tx,
             case i_i2s.receive(size_t num_in, int32_t samples[num_in]):
                 if(mute == 0){
                     memcpy(adat_tx_samples, samples, num_in * sizeof(int32_t));
-                    send_adat_tx_samples(c_adat_tx, (unsigned *)adat_tx_samples, adat_tx_smux);
+                    // send_adat_tx_samples(c_adat_tx, (unsigned *)adat_tx_samples, adat_tx_smux);
                 }
             break;
 
