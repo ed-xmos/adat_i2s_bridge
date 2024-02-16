@@ -248,8 +248,6 @@ int adat_tx_startup(chanend c_adat_tx, unsigned sample_rate, int32_t *adat_tx_sa
         outuint(c_adat_tx, (unsigned) sample_ptr);
     }
 
-    printstr("ADAT tx startup smux: "); printintln(adat_tx_smux);
-
     return adat_tx_smux;
 }
 

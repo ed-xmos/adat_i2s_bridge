@@ -61,8 +61,7 @@ void audio_hub( chanend c_adat_tx,
     rate_measurement_trigger += rate_measurement_period;
 
     // I2S sample rate measurement state
-    uint32_t i2s_sample_period_count = 0;
-    uint8_t measured_i2s_sample_rate_change = 1;    // Force new SR as measured
+    uint8_t measured_i2s_sample_rate_change = 1;
     uint32_t current_i2s_rate = 0;
 
     // General control
@@ -82,21 +81,21 @@ void audio_hub( chanend c_adat_tx,
                 // adat_tx_shutdown(c_adat_tx);
                 printstrln("i2s init");
 
-                mute = (192000 * FORMAT_CHANGE_MUTE_MS) / 1000;
                 i2s_config.mode = I2S_MODE_I2S;
 
                 reset_fifo();
 
-                i2s_sample_period_count = 0;
                 tmr :> last_timestamp;
             break;
 
             case i_i2s.restart_check() -> i2s_restart_t restart:
                 // This if the first callback so the least jitter measurement of timestamp should be here
-                tmr :> latest_timestamp;
+                uint32_t now;
+                tmr :> now;
+                last_timestamp = latest_timestamp;
+                latest_timestamp = now;
 
                 // Inform the I2S slave whether it should restart or exit
-                i2s_sample_period_count++;
                 if(measured_i2s_sample_rate_change){
                     printstr("measured_i2s_sample_rate_change: "); printintln(current_i2s_rate);
                     measured_i2s_sample_rate_change = 0;
@@ -114,31 +113,44 @@ void audio_hub( chanend c_adat_tx,
             break;
 
             case i_i2s.send(size_t num_out, int32_t samples[num_out]):
-                for(int ch = 0; ch < num_out; ch++){
-                    samples[ch] = 0;
-                }
 
                 int32_t asrc_out[8]; // TODO make max ASRC channels
                 int asrc_channel_count = pull_samples(asrc_out, latest_timestamp);
-                if(mute > 0){
+                if(mute){
                     for(int ch = 0; ch < num_out; ch++){
                         samples[ch] = 0;
                     }
-                    mute--;
                 }
                 else {
                     for(int ch = 0; ch < num_out; ch++){
                         samples[ch] = asrc_out[ch];
                     }
-                    samples[4] = asrc_out[0]; // TODO remove me. Just here for a signal copy.
+                }
+                printintln(asrc_out[0]);
+
+
+                uint32_t measured_i2s_rate = sample_rate_from_ts_diff(last_timestamp, latest_timestamp);
+                
+                if(current_i2s_rate == measured_i2s_rate){
+                    // We have a consistent SR
+                    if(measured_i2s_rate != 0){
+                        // And it is valid
+                        if(mute){
+                            // Decrement mute if non-zero
+                            mute--;
+                            // printintln(mute);
+                        }
+                    } else {
+                        // We have a zero SR
+                        mute = 1000;
+                    }
+                } else {
+                    // We have a difference in SR
+                    current_i2s_rate = measured_i2s_rate;
                 }
 
-                uint32_t measured_i2s_rate = calc_sample_rate(&last_timestamp, latest_timestamp, current_i2s_rate, &i2s_sample_period_count);
-                if((measured_i2s_rate != 0) && (current_i2s_rate != measured_i2s_rate)){
-                    measured_i2s_sample_rate_change = 1;
-                    current_i2s_rate = measured_i2s_rate;
-                    unsafe{*new_output_rate_ptr = current_i2s_rate;}
-                }
+                            
+
             break;
         } // select
     }// while(1)
