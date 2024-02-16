@@ -214,8 +214,9 @@ void reset_fifo(void){
     memset(fifo->buffer, 0, fifo->channel_count * fifo->max_fifo_depth * sizeof(int));
 }
 
-// Set by audio_hub. Only read here
-extern uint32_t new_output_rate;
+
+// Set by audio_hub. Only read here. Needs to be a ptr to work with XC volatiles.
+extern volatile uint32_t * new_output_rate_ptr;
 
 // This is fired each time a sample is received (triggered by first channel token)
 DEFINE_INTERRUPT_CALLBACK(ASRC_ISR_GRP, asrc_samples_rx_isr_handler, app_data){
@@ -242,7 +243,7 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
     uint32_t output_frequency = 48000;
 
     asrc_in_out_t asrc_io = {{{0}}};
-    volatile int *ready_flag_ptr = &asrc_io.ready_flag;
+    volatile int *ready_flag_ptr = &asrc_io.ready_flag; // Ensure this is full memory read
 
     // Used for calculating the timestamp interpolation between major frequency conversions
     const int interpolation_ticks_2D[6][6] = {
@@ -359,8 +360,8 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
                 audio_format_change = 1;
             }
 
-            if(new_output_rate != output_frequency){
-                output_frequency = new_output_rate;
+            if(*new_output_rate_ptr != output_frequency){
+                output_frequency = *new_output_rate_ptr;
                 audio_format_change = 1;
             }
 
@@ -374,10 +375,10 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
         // We have broken out of the loop due to a format change. SR may not be stable yet so wait until it is.
         input_frequency = 0;
         // Continue receivng samples until input SR is stable (non zero)
-        while(input_frequency == 0 || new_output_rate == 0){
+        while(input_frequency == 0 || *new_output_rate_ptr == 0){
             chanend_in_byte(c_buff_idx);
             input_frequency = asrc_io.input_frequency;
-            // printstrln(".");
+            delay_microseconds(2); // Hold off reading c_buff_idx for half of a minimum frame period
         }
         // We will be doing init next which could take a while so not yet read to receive frames
         *ready_flag_ptr = 0;

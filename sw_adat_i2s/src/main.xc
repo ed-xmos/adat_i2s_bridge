@@ -51,6 +51,9 @@ on tile[1]: clock bclk =                                    XS1_CLKBLK_1;
 
 // Global to allow asrc_task to read it
 uint32_t new_output_rate = 0;                  // Set to invalid initially
+unsafe{
+    volatile uint32_t * unsafe new_output_rate_ptr = &new_output_rate;
+}
 
 #if POLL_CONTROL_IN_SEND
 [[distributable]]
@@ -140,7 +143,7 @@ void audio_hub( chanend c_adat_tx,
                 if((measured_i2s_rate != 0) && (current_i2s_rate != measured_i2s_rate)){
                     measured_i2s_sample_rate_change = 1;
                     current_i2s_rate = measured_i2s_rate;
-                    new_output_rate = current_i2s_rate;
+                    unsafe{*new_output_rate_ptr = current_i2s_rate;}
                 }
 #if POLL_CONTROL_IN_SEND
                 select{
