@@ -39,25 +39,34 @@ int adat_tx_startup(chanend c_adat_tx, unsigned sample_rate, int32_t *adat_tx_sa
 void adat_tx_shutdown(chanend c_adat_tx);
 
 
+static unsigned adat_smux_counter = 0; // This must persist in between calls
+static unsigned adat_tx_muxed[8]; // This must exist outside of this function scope
+
 #pragma unsafe arrays
 static inline void send_adat_tx_samples(chanend c_adat_tx, const unsigned adat_tx_samples[], int smux)
 {
-    static unsigned adat_counter = 0; // This must persist in between calls
-    static unsigned adat_tx_muxed[8]; // This must exist outside of this function scope
+    switch(smux){
+        case 1:
+            for(int i = 0; i < 8; i++){
+                adat_tx_muxed[i] = adat_tx_samples[i];
+            }
+        break;
 
-    // Do some re-arranging for SMUX..
-    unsafe{
-        // Note, when smux == 1 this loop just does a straight 1:1 copy
-        int adat_sample_index = adat_counter;
-        for(int i = 0; i < (8 / smux); i++){
-            adat_tx_muxed[adat_sample_index] = adat_tx_samples[i];
-            adat_sample_index += smux;
-        }
+        case 2:
+            for(int i = 0; i < 8; i+= 2){
+                adat_tx_muxed[i + adat_smux_counter] = adat_tx_samples[i];
+            }
+        break;
+
+        case 4:
+            for(int i = 0; i < 8; i+= 4){
+                adat_tx_muxed[i + adat_smux_counter] = adat_tx_samples[i];
+            }
+        break;
     }
 
-    adat_counter++;
-
-    if(adat_counter == smux) unsafe {
+    adat_smux_counter++;
+    if(adat_smux_counter >= smux) unsafe {
         // Wait for ADAT core to be done with buffer
         // Note, we are "running ahead" of the ADAT core
         inuint(c_adat_tx);
@@ -65,7 +74,7 @@ static inline void send_adat_tx_samples(chanend c_adat_tx, const unsigned adat_t
         // Send buffer pointer over to ADAT core
         volatile unsigned * unsafe sample_ptr = (unsigned * unsafe) adat_tx_muxed;
         outuint(c_adat_tx, (unsigned) sample_ptr);
-        adat_counter = 0;
+        adat_smux_counter = 0;
     }
 }
 #endif // __XC__

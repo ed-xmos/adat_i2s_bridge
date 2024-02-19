@@ -250,7 +250,8 @@ int adat_tx_startup(chanend c_adat_tx, unsigned sample_rate, int32_t *adat_tx_sa
         volatile unsigned * unsafe sample_ptr = (volatile unsigned * unsafe)adat_tx_samples;
         outuint(c_adat_tx, (unsigned) sample_ptr);
     }
-
+    adat_smux_counter = 0;
+    
     printstr("ADAT tx startup smux: "); printintln(adat_tx_smux);
 
     return adat_tx_smux;
