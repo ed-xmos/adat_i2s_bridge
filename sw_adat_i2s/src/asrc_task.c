@@ -56,7 +56,7 @@ unsigned receive_asrc_input_samples(chanend c_asrc_input_samples, asrc_in_out_t 
 }
 
 
-int fs_code(int frequency) {
+static int frequency_to_fs_code(int frequency) {
     if(frequency == 44100) {
         return  FS_CODE_44;
     } else if(frequency == 48000) {
@@ -75,13 +75,14 @@ int fs_code(int frequency) {
     return -1;
 }
 
+// Structure to populate to that the ISR can access main thread
 typedef struct isr_ctx_t{
     chanend_t c_asrc_input;
     chanend_t c_buff_idx;
     asrc_in_out_t *asrc_io;
 } isr_ctx_t;
 
-
+// Structure used for thread scheduling of parallel ASRC
 typedef struct schedule_info_t{
     int num_channels;
     int channel_start_idx;
@@ -107,6 +108,7 @@ int calculate_job_share(int asrc_channel_count,
 }
 
 
+// A single worker thread which operates on a group of channels in parallel
 DECLARE_JOB(do_asrc_group, (schedule_info_t*, uint64_t, asrc_in_out_t*, unsigned, int*, asrc_ctrl_t*));
 void do_asrc_group(schedule_info_t *schedule, uint64_t fs_ratio, asrc_in_out_t * asrc_io, unsigned input_write_idx, int* num_output_samples, asrc_ctrl_t asrc_ctrl[]){
 
@@ -198,26 +200,26 @@ int par_asrc(int num_jobs, schedule_info_t schedule[], uint64_t fs_ratio, asrc_i
         break;
 #endif
         default:
-            xassert(0); // Too many or no jobs specified
+            xassert(0); // Too many jobs specified
         break;
     }
     return num_output_samples;
 }
 
 
-///// FIFO declaration. Global to allow producer and consumer to access it
-#define FIFO_LENGTH   (SRC_MAX_NUM_SAMPS_OUT * 3) // Half full is target so * 2 but we need wiggle room at startup
+// FIFO declaration. Global to allow producer and consumer to access it
+#define FIFO_LENGTH     (SRC_MAX_NUM_SAMPS_OUT * 3) // Half full is target so *2 is nominal size but we need wiggle room at startup
 int64_t array[ASYNCHRONOUS_FIFO_INT64_ELEMENTS(FIFO_LENGTH, MAX_ASRC_CHANNELS_TOTAL)];
 asynchronous_fifo_t *fifo = (asynchronous_fifo_t *)array;
 
-// Called from consumer side
+// Called from consumer side. Produces samples and returns channel count
 int pull_samples(int32_t *samples, int32_t consume_timestamp){
     asynchronous_fifo_consume(fifo, samples, consume_timestamp);
 
     return asrc_channel_count;
 }
 
-// Consumer side FIFO reset
+// Consumer side FIFO reset and clear contents
 void reset_asrc_fifo(void){
     asynchronous_fifo_reset_consumer(fifo);
     memset(fifo->buffer, 0, fifo->channel_count * fifo->max_fifo_depth * sizeof(int));
@@ -245,7 +247,8 @@ DEFINE_INTERRUPT_CALLBACK(ASRC_ISR_GRP, asrc_samples_rx_isr_handler, app_data){
     }
 }
 
-static void asrc_wait_for_valid_config(chanend_t c_buff_idx, uint32_t *input_frequency, uint32_t *output_frequency, asrc_in_out_t *asrc_io, volatile int *ready_flag_ptr){
+
+static inline void asrc_wait_for_valid_config(chanend_t c_buff_idx, uint32_t *input_frequency, uint32_t *output_frequency, asrc_in_out_t *asrc_io, volatile int *ready_flag_ptr){
     // Keep receiving samples until input format is good
     *ready_flag_ptr = 1; // Signal we are ready to consume a frame of input samples
 
@@ -260,13 +263,14 @@ static void asrc_wait_for_valid_config(chanend_t c_buff_idx, uint32_t *input_fre
             asrc_channel_count == 0);
 
     xassert(asrc_channel_count <= MAX_ASRC_CHANNELS_TOTAL);
-    fs_code(*input_frequency);  // This will assert if invalid
-    fs_code(*output_frequency); // This will assert if invalid
+    frequency_to_fs_code(*input_frequency);  // This will assert if invalid
+    frequency_to_fs_code(*output_frequency); // This will assert if invalid
 
     *ready_flag_ptr = 0; // Dsicard input samples for now
 }
 
-static bool asrc_detect_format_change(uint32_t input_frequency, uint32_t output_frequency, asrc_in_out_t *asrc_io){
+
+static inline bool asrc_detect_format_change(uint32_t input_frequency, uint32_t output_frequency, asrc_in_out_t *asrc_io){
     if( asrc_io->input_frequency != input_frequency || 
         asrc_io->input_channel_count != asrc_channel_count ||
         *new_output_rate_ptr != output_frequency){
@@ -276,7 +280,8 @@ static bool asrc_detect_format_change(uint32_t input_frequency, uint32_t output_
     }
 }
 
-// Main ASRC task. Defined as ISR friendly
+
+// Main ASRC task. Defined as ISR friendly because we interrupt it receive samples
 DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc_input, chanend_t c_buff_idx){
     
     uint32_t input_frequency = 0;   // Set to invalid for now
@@ -303,14 +308,14 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
     triggerable_enable_trigger(c_asrc_input);
     interrupt_unmask_all();
 
-    // This is a forever loop consisting of init -> forever process until format change
+    // This is a forever loop consisting of init -> forever process, until format change when we return to init
     while(1){
         asrc_wait_for_valid_config(c_buff_idx, &input_frequency, &output_frequency, &asrc_io, ready_flag_ptr);
 
-        // Frequency info
+        // Extract frequency info
         dprintf("Input fs: %lu Output fs: %lu\n", input_frequency, output_frequency);
-        int inputFsCode = fs_code(input_frequency);
-        int outputFsCode = fs_code(output_frequency);
+        int inputFsCode = frequency_to_fs_code(input_frequency);
+        int outputFsCode = frequency_to_fs_code(output_frequency);
         int interpolation_ticks = interpolation_ticks_2D[inputFsCode][outputFsCode];
         
         ///// FIFO init
@@ -318,7 +323,7 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
         asynchronous_fifo_init_PID_fs_codes(fifo, inputFsCode, outputFsCode);
         dprintf("FIFO init channels: %d\n", asrc_channel_count);
 
-        // SCHEDULER init
+        // Parallel scheduler init
         schedule_info_t schedule[MAX_ASRC_THREADS];
         int num_jobs = calculate_job_share(asrc_channel_count, schedule);
         dprintf("num_jobs: %d, MAX_ASRC_THREADS: %d, asrc_channel_count: %d\n", num_jobs, MAX_ASRC_THREADS, asrc_channel_count);
@@ -352,10 +357,8 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
 
         // Timing check vars. Includes ASRC, timestamp interpolation and FIFO push
         int32_t asrc_process_time_limit = (XS1_TIMER_HZ / input_frequency) * SRC_N_IN_SAMPLES;
-        (void)asrc_process_time_limit;
         dprintf("ASRC process_time_limit: %ld\n", asrc_process_time_limit);
         int32_t asrc_peak_processing_time = 0;
-
 
         ideal_fs_ratio = (fs_ratio + (1<<31)) >> 32;
         dprintf("ideal_fs_ratio: %d\n", ideal_fs_ratio);
@@ -388,6 +391,7 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
             if(t1 - t0 > asrc_peak_processing_time){
                 asrc_peak_processing_time = t1 - t0;
                 printintln(asrc_peak_processing_time);
+                xassert(asrc_peak_processing_time <= asrc_process_time_limit);
             }
 
             // TODO Remove me. This is here to monitor PID loop convergence during dev
