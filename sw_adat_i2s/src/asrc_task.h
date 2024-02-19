@@ -15,18 +15,18 @@
 #define     SRC_DITHER_SETTING                  0 // Enables or disables quantisation of output with dithering to 24b
 #define     SRC_MAX_NUM_SAMPS_OUT               (SRC_N_OUT_IN_RATIO_MAX * SRC_N_IN_SAMPLES)
 
-/* Stuff that must be defined for lib_src */
+// These must be defined for lib_src
 #define     ASRC_N_IN_SAMPLES                   (SRC_N_IN_SAMPLES) /* Used by SRC_STACK_LENGTH_MULT in src_mrhf_asrc.h */
 #define     ASRC_N_CHANNELS                     (SRC_MAX_SRC_CHANNELS_PER_INSTANCE) /* Used by SRC_STACK_LENGTH_MULT in src_mrhf_asrc.h */
 
-
+// Structure used for 
 typedef struct asrc_in_out_t{
     int32_t input_samples[2][ASRC_N_IN_SAMPLES * MAX_ASRC_CHANNELS_TOTAL];  // Double buffer input array
     unsigned input_write_idx;                                               // Double buffer idx
     int ready_flag;                                                         // Flag to indicate ASRC ready to accept samples
     int32_t input_timestamp;                                                // Timestamp of last received input sample
-    unsigned input_frequency;                                               // Nominal input sample rate 
-    unsigned input_channel_count;                                           // As named..
+    unsigned input_frequency;                                               // Nominal input sample rate  44100..192000
+    unsigned input_channel_count;                                           // This is set by the producer
     int32_t output_samples[SRC_MAX_NUM_SAMPS_OUT * MAX_ASRC_CHANNELS_TOTAL];// Output sample array
     uint32_t num_output_samples;                                            // How many sample periods worth of channels
     int32_t output_time_stamp;                                              // The consumption timestamp (set by consumer)

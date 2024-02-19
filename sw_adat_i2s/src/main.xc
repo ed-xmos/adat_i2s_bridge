@@ -157,7 +157,7 @@ int main(void) {
                 adat_rx_task(c_adat_rx, p_adat_in);
                 adat_rx_demux(c_adat_rx, c_adat_rx_demux, c_smux_change_adat_rx);
 
-                // These can be deleted when deployed. Only for demo
+                // These can be deleted when deployed. Only for demo.
                 i2c_master(i2c, 1, p_scl, p_sda, 100);
                 gpio(c_smux_change_adat_rx, p_buttons, p_leds, i2c[0]);
             }
@@ -166,7 +166,7 @@ int main(void) {
             adat_tx_hw_setup(c_adat_tx, mck_blk, p_mclk, p_adat_out);
 
             par {
-                [[distribute]]
+                [[distribute]] // This causes audio_hub to be a callback and not consume a thread
                 audio_hub(c_adat_tx, i_i2s);
                 asrc_processor(c_adat_rx_demux);
                 i2s_frame_slave(i_i2s, p_dac, NUM_I2S_DAC_LINES, p_adc, NUM_I2S_ADC_LINES, I2S_DATA_BITS, p_bclk, p_lrclk, bclk);
