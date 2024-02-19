@@ -156,6 +156,8 @@ int main(void) {
             par{
                 adat_rx_task(c_adat_rx, p_adat_in);
                 adat_rx_demux(c_adat_rx, c_adat_rx_demux, c_smux_change_adat_rx);
+
+                // These can be deleted when deployed. Only for demo
                 i2c_master(i2c, 1, p_scl, p_sda, 100);
                 gpio(c_smux_change_adat_rx, p_buttons, p_leds, i2c[0]);
             }
