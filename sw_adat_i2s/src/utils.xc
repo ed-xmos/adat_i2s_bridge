@@ -31,7 +31,7 @@ const unsigned smux_list[] = {SMUX_NONE, SMUX_II, SMUX_IV};
             curr_sr_idx = 0;
         }
         // Set new sample rate on CODEC (I2S master)
-        unsigned master_clock_frequency = (sr_list[curr_sr_idx] % 48000 == 0) ? MCLK_48 : MCLK_441;
+        unsigned master_clock_frequency = get_master_clock_from_samp_rate(sr_list[curr_sr_idx]);
         AudioHwConfig(i_i2c, sr_list[curr_sr_idx], master_clock_frequency, 0, 24, 24);
     }
     if(idx == 1){
@@ -57,8 +57,9 @@ const unsigned smux_list[] = {SMUX_NONE, SMUX_II, SMUX_IV};
 #define NUM_BUTTONS 3
 void gpio(chanend c_smux_change_adat_rx, in port p_buttons, out port p_leds, client interface i2c_master_if i_i2c){
 
+    // Initial audio HW setup
     AudioHwInit(i_i2c);
-    AudioHwConfig(i_i2c, DEFAULT_FREQ, MCLK_48, 0, 24, 24);
+    AudioHwConfig(i_i2c, DEFAULT_FREQ, get_master_clock_from_samp_rate(DEFAULT_FREQ), 0, 24, 24);
 
     // Buttons
     const uint8_t counts_for_active = 20;
@@ -82,8 +83,13 @@ void gpio(chanend c_smux_change_adat_rx, in port p_buttons, out port p_leds, cli
     unsigned led_sequence_idx = 0;
 
     // State
-    unsigned sr_i2s_idx = 1; // 48k
+    unsigned sr_i2s_idx = 0; // This will be overwritten by next function
     unsigned adat_rx_smux_idx = 0; // no SMUX
+
+    // Reverse lookup DEFAULT_FREQ
+    for(int i = 0; i < sizeof(sr_list) / sizeof(sr_list[0]); i++){
+        if(sr_list[i] == DEFAULT_FREQ) sr_i2s_idx = i;
+    }
 
     while (1) {
         select {

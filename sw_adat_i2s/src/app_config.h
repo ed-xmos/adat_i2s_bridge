@@ -11,7 +11,7 @@
 // For I2S master only (currently the CODEC is setup to be this). Can be removed when I2S slave
 #define MCLK_441                                            22579200
 #define MCLK_48                                             24576000
-#define DEFAULT_FREQ                                        48000
+#define DEFAULT_FREQ                                        44100
 
 #define ADAT_MULTIPLIER                                     512 // For 22/24M master clock
 

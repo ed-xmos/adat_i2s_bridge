@@ -62,8 +62,8 @@ void audio_hub( chanend c_adat_tx,
 
     // I2S master state. This controls setting up of the I2S master (the CODEC)
     // This can be removed when connected to another I2S master
-    uint32_t master_clock_frequency = MCLK_48;
     uint32_t i2s_set_sample_rate = DEFAULT_FREQ;
+    uint32_t master_clock_frequency = get_master_clock_from_samp_rate(i2s_set_sample_rate);
 
     // I2S sample rate measurement state
     uint32_t i2s_sample_period_count = 0;
@@ -86,10 +86,10 @@ void audio_hub( chanend c_adat_tx,
             case i_i2s.init(i2s_config_t &?i2s_config, tdm_config_t &?tdm_config):
                 // adat_tx_shutdown(c_adat_tx);
 
-                // i2s_config.mclk_bclk_ratio = (master_clock_frequency / (i2s_set_sample_rate*2*I2S_DATA_BITS));
-                printstr("i2s init: "); printintln(i2s_set_sample_rate);
+                i2s_config.mclk_bclk_ratio = (master_clock_frequency / (i2s_set_sample_rate*2*I2S_DATA_BITS));
+                printstr("i2s init: "); printintln(current_i2s_rate);
 
-                mute = (i2s_set_sample_rate * FORMAT_CHANGE_MUTE_MS) / 1000;
+                mute = (current_i2s_rate * FORMAT_CHANGE_MUTE_MS) / 1000;
                 i2s_config.mode = I2S_MODE_I2S;
 
                 reset_fifo();

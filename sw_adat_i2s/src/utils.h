@@ -14,6 +14,7 @@ enum audio_port_idx{
     IO_ADAT_TX
 };
 
+// These are statically calculated by the compiler for speed
 #define RATE_LOWER(rate, ppm) ((uint32_t)((float)rate * (1.0 - (float)ppm / 1e6) + 0.5))
 #define RATE_HIGHER(rate, ppm) ((uint32_t)((float)rate * (1.0 + (float)ppm / 1e6)+ 0.5))
 #define CHECK_RATE(sps, rate, ppm) if (sps > RATE_LOWER(rate, ppm) && sps < RATE_HIGHER(rate, ppm)){return rate;}
@@ -30,6 +31,10 @@ inline uint32_t get_normal_sample_rate(uint32_t samples_per_second){
     CHECK_RATE(samples_per_second, 44100, ppm_tolerance);
 
     return 0; // Invalid rate found
+}
+
+inline uint32_t get_master_clock_from_samp_rate(uint32_t sample_rate){
+    return (sample_rate % 48000 == 0) ? MCLK_48 : MCLK_441;
 }
 
 inline uint32_t sample_rate_from_ts_diff(int32_t t0, int32_t t1){
