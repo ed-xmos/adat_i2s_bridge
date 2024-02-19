@@ -15,6 +15,7 @@
 
 #define ADAT_MULTIPLIER                                     512 // For 22/24M master clock
 
-#define FORMAT_CHANGE_MUTE_MS                               250
+#define FORMAT_CHANGE_MUTE_MS                               250 // How long to silence on SR changes
+#define I2S_SLAVE_SR_MEASUREMENT_RATE_HZ                    100
 
 #endif

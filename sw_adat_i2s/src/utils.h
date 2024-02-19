@@ -48,12 +48,11 @@ inline uint32_t sample_rate_from_ts_diff(int32_t t0, int32_t t1){
 }
 
 inline uint32_t calc_sample_rate(int32_t *last_timestamp, int32_t latest_timestamp, uint32_t current_i2s_rate, uint32_t *i2s_sample_period_count){
-    const uint32_t measurement_rate_hz = 100;
-    const int32_t rate_measurement_period = XS1_TIMER_HZ / measurement_rate_hz;
+    const int32_t rate_measurement_period = XS1_TIMER_HZ / I2S_SLAVE_SR_MEASUREMENT_RATE_HZ;
     
     if(timeafter(latest_timestamp, *last_timestamp + rate_measurement_period)){
         *last_timestamp = latest_timestamp;
-        uint32_t samples_per_second = *i2s_sample_period_count * measurement_rate_hz;
+        uint32_t samples_per_second = *i2s_sample_period_count * I2S_SLAVE_SR_MEASUREMENT_RATE_HZ;
         *i2s_sample_period_count = 0;
 
         return get_normal_sample_rate(samples_per_second);

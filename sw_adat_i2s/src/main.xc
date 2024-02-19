@@ -44,7 +44,7 @@ on tile[1]: clock bclk =                                    XS1_CLKBLK_1;
 
 
 // Global to allow asrc_task to read it
-uint32_t new_output_rate = 0;                  // Set to invalid initially
+uint32_t new_output_rate = 0;                  // Set to invalid initially since we don't know yet
 unsafe{
     volatile uint32_t * unsafe new_output_rate_ptr = &new_output_rate;
 }
@@ -60,14 +60,10 @@ void audio_hub( chanend c_adat_tx,
     tmr :> rate_measurement_trigger;
     rate_measurement_trigger += rate_measurement_period;
 
-    // I2S master state. This controls setting up of the I2S master (the CODEC)
-    // This can be removed when connected to another I2S master
-    uint32_t i2s_set_sample_rate = DEFAULT_FREQ;
-
     // I2S sample rate measurement state
     uint32_t i2s_sample_period_count = 0;
     uint8_t measured_i2s_sample_rate_change = 1;    // Force new SR as measured
-    uint32_t current_i2s_rate = 0;
+    uint32_t current_i2s_rate = 0;                  // We don't know the rate yet
 
     // General control
     uint32_t mute = 0;
@@ -78,21 +74,29 @@ void audio_hub( chanend c_adat_tx,
     int adat_tx_smux = SMUX_NONE;
     int32_t adat_tx_samples[ADAT_MAX_SAMPLES] = {0};
 
-    // adat_tx_startup(c_adat_tx, i2s_set_sample_rate, adat_tx_samples);
+    adat_tx_startup(c_adat_tx, DEFAULT_FREQ, adat_tx_samples); // Set at anything initially. This will be reset when we detect a valid SR.
 
+    // Note I2S can run with a zero sample period until it measures something valid
     while(1) {
         select{
             case i_i2s.init(i2s_config_t &?i2s_config, tdm_config_t &?tdm_config):
                 printstr("i2s init: "); printintln(current_i2s_rate);
-
-                // adat_tx_shutdown(c_adat_tx);
-                
-                mute = (current_i2s_rate * FORMAT_CHANGE_MUTE_MS) / 1000;
-                i2s_config.mode = I2S_MODE_I2S;
-
                 reset_asrc_fifo();
 
-                // adat_tx_smux = adat_tx_startup(c_adat_tx, i2s_set_sample_rate, adat_tx_samples);
+                // Ensure ASRC can see the new I2S rate
+                unsafe{*new_output_rate_ptr = current_i2s_rate;}
+
+                adat_tx_shutdown(c_adat_tx);
+
+                if(current_i2s_rate == 0){
+                    mute = 192000 * 10; // Set for a long period whilst we wait for a valid SR
+                } else {
+                    mute = (current_i2s_rate * FORMAT_CHANGE_MUTE_MS) / 1000;
+                }
+                i2s_config.mode = I2S_MODE_I2S;
+
+                adat_tx_smux = adat_tx_startup(c_adat_tx, current_i2s_rate, adat_tx_samples);
+
             break;
 
             case i_i2s.restart_check() -> i2s_restart_t restart:
@@ -103,7 +107,6 @@ void audio_hub( chanend c_adat_tx,
                 i2s_sample_period_count++;
                 if(measured_i2s_sample_rate_change){
                     printstr("measured_i2s_sample_rate_change: "); printintln(current_i2s_rate);
-                    unsafe{printintln(*new_output_rate_ptr);}
                     measured_i2s_sample_rate_change = 0;
                     restart = I2S_RESTART;
                     break;
@@ -112,8 +115,8 @@ void audio_hub( chanend c_adat_tx,
             break;
 
             case i_i2s.receive(size_t num_in, int32_t samples[num_in]):
-                if(mute == 0){
-                    memcpy(adat_tx_samples, samples, num_in * sizeof(int32_t));
+                if(mute == 0 && current_i2s_rate != 0){
+                    memcpy(adat_tx_samples, samples, num_in * sizeof(int32_t)); // Need to make a copy because interface local samples can't be sent directly
                     // send_adat_tx_samples(c_adat_tx, (unsigned *)adat_tx_samples, adat_tx_smux);
                 }
             break;
@@ -138,10 +141,11 @@ void audio_hub( chanend c_adat_tx,
                 }
 
                 uint32_t measured_i2s_rate = calc_sample_rate(&last_timestamp, latest_timestamp, current_i2s_rate, &i2s_sample_period_count);
-                if((measured_i2s_rate != 0) && (current_i2s_rate != measured_i2s_rate)){
+                if(current_i2s_rate != measured_i2s_rate){
+                    // Ensure ASRC sees an invalid rate initially so it breaks as early as possible
+                    unsafe{*new_output_rate_ptr = 0;}
                     measured_i2s_sample_rate_change = 1;
                     current_i2s_rate = measured_i2s_rate;
-                    unsafe{*new_output_rate_ptr = current_i2s_rate;}
                 }
             break;
         } // select
