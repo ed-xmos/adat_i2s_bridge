@@ -43,7 +43,6 @@ on tile[0]: in port p_margin = XS1_PORT_1G;  /* CORE_POWER_MARGIN:   Driven 0:  
 /* Board setup for XU316 MC Audio (1v1) */
 void board_setup()
 {
-    printstrln("board_setup");
     /* Ensure high-z for 0.9v */
     p_margin :> void;
 

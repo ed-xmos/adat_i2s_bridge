@@ -19,8 +19,8 @@
 #include "app_config.h"
 
 #ifndef dprintf
-// #define dprintf(...)   printf(__VA_ARGS__)
-#define dprintf(...)
+#define dprintf(...)   printf(__VA_ARGS__)
+// #define dprintf(...)
 #endif
 
 unsigned asrc_channel_count = 8;                 // Current channel count (dynamic). Needs to be global so can be read by pull_samples
@@ -214,7 +214,7 @@ int pull_samples(int32_t *samples, int32_t consume_timestamp){
 }
 
 // Consumer side FIFO reset
-void reset_fifo(void){
+void reset_asrc_fifo(void){
     asynchronous_fifo_reset_consumer(fifo);
     memset(fifo->buffer, 0, fifo->channel_count * fifo->max_fifo_depth * sizeof(int));
 }
