@@ -19,9 +19,6 @@ extern "C"{
 
 
 extern void board_setup(void);
-extern void AudioHwInit(void);
-extern void AudioHwConfig(unsigned samFreq, unsigned mClk, unsigned dsdMode, unsigned sampRes_DAC, unsigned sampRes_ADC);
-extern unsafe client interface i2c_master_if i_i2c_client;
 
 // ADAT resources
 on tile[0]: buffered in port:32 p_adat_in =                 PORT_ADAT_IN;
@@ -54,8 +51,7 @@ unsafe{
 
 [[distributable]]
 void audio_hub( chanend c_adat_tx,
-                server i2s_frame_callback_if i_i2s,
-                chanend c_sr_change) {
+                server i2s_frame_callback_if i_i2s) {
     // Approx rate calculation based on sample counting
     timer tmr;
     int32_t rate_measurement_trigger = 0;
@@ -95,7 +91,6 @@ void audio_hub( chanend c_adat_tx,
                 printstr("i2s init: "); printintln(i2s_set_sample_rate);
 
                 mute = (i2s_set_sample_rate * FORMAT_CHANGE_MUTE_MS) / 1000;
-                AudioHwConfig(i2s_set_sample_rate, master_clock_frequency, 0, 24, 24);
                 i2s_config.mode = I2S_MODE_I2S;
 
                 reset_fifo();
@@ -158,23 +153,6 @@ void audio_hub( chanend c_adat_tx,
                     current_i2s_rate = measured_i2s_rate;
                     unsafe{*new_output_rate_ptr = current_i2s_rate;}
                 }
-                // Poll SR change channel
-                select{
-                    case c_sr_change :> unsigned id:
-                        if(id == IO_I2S){
-                            unsigned new_sr;
-                            c_sr_change :> new_sr;
-                            master_clock_frequency = (new_sr % 48000 == 0) ? MCLK_48 : MCLK_441;
-
-                            i2s_set_sample_rate = new_sr;
-                            i2s_master_sample_rate_change = 1;
-                        }
-                    break;
-                    // Fallthrough
-                    default:
-                        // Do nothing. No format change.
-                    break;
-                }
             break;
         } // select
     }// while(1)
@@ -185,7 +163,6 @@ int main(void) {
     chan c_adat_rx_demux;
     chan c_adat_tx;
     i2s_frame_callback_if i_i2s;
-    chan c_sr_change_i2s;
     chan c_smux_change_adat_rx;
     interface i2c_master_if i2c[1];
 
@@ -196,20 +173,15 @@ int main(void) {
                 adat_rx_task(c_adat_rx, p_adat_in);
                 adat_rx_demux(c_adat_rx, c_adat_rx_demux, c_smux_change_adat_rx);
                 i2c_master(i2c, 1, p_scl, p_sda, 100);
-                gpio(c_sr_change_i2s, c_smux_change_adat_rx, p_buttons, p_leds);
+                gpio(c_smux_change_adat_rx, p_buttons, p_leds, i2c[0]);
             }
         }
         on tile[1]: {
-            unsafe{
-                i_i2c_client = i2c[0];
-            }
-            delay_milliseconds(100); // Wait for board_setup() to complete
-            AudioHwInit();
             adat_tx_setup_task(c_adat_tx, mck_blk, p_mclk, p_adat_out);
 
             par {
                 [[distribute]]
-                audio_hub(c_adat_tx, i_i2s, c_sr_change_i2s);
+                audio_hub(c_adat_tx, i_i2s);
                 asrc_processor(c_adat_rx_demux);
                 i2s_frame_slave(i_i2s, p_dac, NUM_I2S_DAC_LINES, p_adc, NUM_I2S_ADC_LINES, I2S_DATA_BITS, p_bclk, p_lrclk, bclk);
                 adat_tx_task(c_adat_tx, p_adat_out);
