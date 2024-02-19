@@ -16,5 +16,6 @@
 #define ADAT_MULTIPLIER                                     512 // For 22/24M master clock
 
 #define FORMAT_CHANGE_MUTE_MS                               250
+#define I2S_RATE_MEASUREMENT_HZ                             100
 
 #endif
