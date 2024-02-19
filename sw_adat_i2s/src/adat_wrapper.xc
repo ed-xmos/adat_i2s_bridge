@@ -198,9 +198,9 @@ void adat_rx_task(chanend c_adat_rx, buffered in port:32 p_adat_in) {
     delay_milliseconds(1000); //TODO remove me. Waiting for ASRC to consume..
     while(1) {
         adatReceiver48000(p_adat_in, c_adat_rx);
-        printstr("adatrx restart\n");
+        printstr("ADAT Rx restart\n");
         adatReceiver44100(p_adat_in, c_adat_rx);
-        printstr("adatrx restart\n");
+        printstr("ADAT Rx restart\n");
     }
 }
 

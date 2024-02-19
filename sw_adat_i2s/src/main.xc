@@ -79,7 +79,7 @@ void audio_hub( chanend c_adat_tx,
     while(1) {
         select{
             case i_i2s.init(i2s_config_t &?i2s_config, tdm_config_t &?tdm_config):
-                printstr("i2s init: "); printintln(current_i2s_rate);
+                printstr("i2s init detected: "); printintln(current_i2s_rate);
 
                 adat_tx_shutdown(c_adat_tx);
                 
@@ -132,6 +132,7 @@ void audio_hub( chanend c_adat_tx,
                 }
 
                 uint32_t measured_i2s_rate = calc_sample_rate(&last_timestamp, latest_timestamp, current_i2s_rate, &i2s_sample_period_count);
+                
                 if((measured_i2s_rate != 0) && (current_i2s_rate != measured_i2s_rate)){
                     measured_i2s_sample_rate_change = 1;
                     current_i2s_rate = measured_i2s_rate;

@@ -42,7 +42,7 @@ void adat_tx_shutdown(chanend c_adat_tx);
 static unsigned adat_smux_counter = 0; // This must persist in between calls
 static unsigned adat_tx_muxed[8]; // This must exist outside of this function scope
 
-#pragma unsafe arrays
+// #pragma unsafe arrays
 static inline void send_adat_tx_samples(chanend c_adat_tx, const unsigned adat_tx_samples[], int smux)
 {
     switch(smux){
@@ -54,6 +54,7 @@ static inline void send_adat_tx_samples(chanend c_adat_tx, const unsigned adat_t
 
         case 2:
             for(int i = 0; i < 8; i+= 2){
+                if(i + adat_smux_counter >= 8) printintln(i + adat_smux_counter);
                 adat_tx_muxed[i + adat_smux_counter] = adat_tx_samples[i];
             }
         break;
