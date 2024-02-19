@@ -14,6 +14,7 @@ enum audio_port_idx{
     IO_ADAT_TX
 };
 
+// These are statically calculated by the compiler for speed
 #define RATE_LOWER(rate, ppm) ((uint32_t)((float)rate * (1.0 - (float)ppm / 1e6) + 0.5))
 #define RATE_HIGHER(rate, ppm) ((uint32_t)((float)rate * (1.0 + (float)ppm / 1e6)+ 0.5))
 #define CHECK_RATE(sps, rate, ppm) if (sps > RATE_LOWER(rate, ppm) && sps < RATE_HIGHER(rate, ppm)){return rate;}
@@ -32,6 +33,10 @@ inline uint32_t get_normal_sample_rate(uint32_t samples_per_second){
     return 0; // Invalid rate found
 }
 
+inline uint32_t get_master_clock_from_samp_rate(uint32_t sample_rate){
+    return (sample_rate % 48000 == 0) ? MCLK_48 : MCLK_441;
+}
+
 inline uint32_t sample_rate_from_ts_diff(int32_t t0, int32_t t1){
     int32_t ts_diff = t1 - t0;
     if(ts_diff == 0){
@@ -43,7 +48,7 @@ inline uint32_t sample_rate_from_ts_diff(int32_t t0, int32_t t1){
 }
 
 inline uint32_t calc_sample_rate(int32_t *last_timestamp, int32_t latest_timestamp, uint32_t current_i2s_rate, uint32_t *i2s_sample_period_count){
-    const uint32_t measurement_rate_hz = 10;
+    const uint32_t measurement_rate_hz = 100;
     const int32_t rate_measurement_period = XS1_TIMER_HZ / measurement_rate_hz;
     
     if(timeafter(latest_timestamp, *last_timestamp + rate_measurement_period)){

@@ -60,6 +60,10 @@ void audio_hub( chanend c_adat_tx,
     tmr :> rate_measurement_trigger;
     rate_measurement_trigger += rate_measurement_period;
 
+    // I2S master state. This controls setting up of the I2S master (the CODEC)
+    // This can be removed when connected to another I2S master
+    uint32_t i2s_set_sample_rate = DEFAULT_FREQ;
+
     // I2S sample rate measurement state
     uint32_t i2s_sample_period_count = 0;
     uint8_t measured_i2s_sample_rate_change = 1;    // Force new SR as measured
@@ -74,21 +78,21 @@ void audio_hub( chanend c_adat_tx,
     int adat_tx_smux = SMUX_NONE;
     int32_t adat_tx_samples[ADAT_MAX_SAMPLES] = {0};
 
-    // adat_tx_startup(c_adat_tx, DEFAULT_FREQ, adat_tx_samples);
+    // adat_tx_startup(c_adat_tx, i2s_set_sample_rate, adat_tx_samples);
 
     while(1) {
         select{
             case i_i2s.init(i2s_config_t &?i2s_config, tdm_config_t &?tdm_config):
-                // adat_tx_shutdown(c_adat_tx);
-                printstrln("i2s init");
+                printstr("i2s init: "); printintln(current_i2s_rate);
 
-                mute = (192000 * FORMAT_CHANGE_MUTE_MS) / 1000;
+                // adat_tx_shutdown(c_adat_tx);
+                
+                mute = (current_i2s_rate * FORMAT_CHANGE_MUTE_MS) / 1000;
                 i2s_config.mode = I2S_MODE_I2S;
 
-                reset_fifo();
+                reset_asrc_fifo();
 
-                i2s_sample_period_count = 0;
-                tmr :> last_timestamp;
+                // adat_tx_smux = adat_tx_startup(c_adat_tx, i2s_set_sample_rate, adat_tx_samples);
             break;
 
             case i_i2s.restart_check() -> i2s_restart_t restart:
@@ -99,11 +103,12 @@ void audio_hub( chanend c_adat_tx,
                 i2s_sample_period_count++;
                 if(measured_i2s_sample_rate_change){
                     printstr("measured_i2s_sample_rate_change: "); printintln(current_i2s_rate);
+                    unsafe{printintln(*new_output_rate_ptr);}
                     measured_i2s_sample_rate_change = 0;
                     restart = I2S_RESTART;
-                } else {
-                    restart = I2S_NO_RESTART;
+                    break;
                 }
+                restart = I2S_NO_RESTART;
             break;
 
             case i_i2s.receive(size_t num_in, int32_t samples[num_in]):
@@ -130,7 +135,6 @@ void audio_hub( chanend c_adat_tx,
                     for(int ch = 0; ch < num_out; ch++){
                         samples[ch] = asrc_out[ch];
                     }
-                    samples[4] = asrc_out[0]; // TODO remove me. Just here for a signal copy.
                 }
 
                 uint32_t measured_i2s_rate = calc_sample_rate(&last_timestamp, latest_timestamp, current_i2s_rate, &i2s_sample_period_count);
@@ -162,9 +166,7 @@ int main(void) {
                 gpio(c_smux_change_adat_rx, p_buttons, p_leds, i2c[0]);
             }
         }
-
         on tile[1]: {
-            delay_milliseconds(100); // Wait for board_setup() to complete
             adat_tx_setup_task(c_adat_tx, mck_blk, p_mclk, p_adat_out);
 
             par {

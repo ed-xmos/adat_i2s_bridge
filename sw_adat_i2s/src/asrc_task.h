@@ -40,6 +40,6 @@ int pull_samples(int32_t * unsafe samples, int32_t consume_timestamp);
 void asrc_processor(chanend_t c_asrc_input);
 int pull_samples(int32_t *samples, int32_t consume_timestamp);
 #endif
-void reset_fifo(void);
+void reset_asrc_fifo(void);
 
 #endif // _ASRC_TASK_H_

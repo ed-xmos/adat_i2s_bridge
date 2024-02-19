@@ -19,8 +19,8 @@
 #include "app_config.h"
 
 #ifndef dprintf
-// #define dprintf(...)   printf(__VA_ARGS__)
-#define dprintf(...)
+#define dprintf(...)   printf(__VA_ARGS__)
+// #define dprintf(...)
 #endif
 
 unsigned asrc_channel_count = 8;                 // Current channel count (dynamic). Needs to be global so can be read by pull_samples
@@ -214,7 +214,7 @@ int pull_samples(int32_t *samples, int32_t consume_timestamp){
 }
 
 // Consumer side FIFO reset
-void reset_fifo(void){
+void reset_asrc_fifo(void){
     asynchronous_fifo_reset_consumer(fifo);
     memset(fifo->buffer, 0, fifo->channel_count * fifo->max_fifo_depth * sizeof(int));
 }
@@ -350,7 +350,7 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
             int32_t t1 = get_reference_time();
             if(t1 - t0 > asrc_peak_processing_time){
                 asrc_peak_processing_time = t1 - t0;
-                // printintln(asrc_peak_processing_time);
+                printintln(asrc_peak_processing_time);
             }
 
             // TODO Remove me. This is here to monitor PID loop convergence during dev
