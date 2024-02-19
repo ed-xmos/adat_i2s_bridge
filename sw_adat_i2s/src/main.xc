@@ -64,7 +64,6 @@ void audio_hub( chanend c_adat_tx,
     // This can be removed when connected to another I2S master
     uint32_t master_clock_frequency = MCLK_48;
     uint32_t i2s_set_sample_rate = DEFAULT_FREQ;
-    uint8_t i2s_master_sample_rate_change = 1; // Force config first time around
 
     // I2S sample rate measurement state
     uint32_t i2s_sample_period_count = 0;
@@ -80,14 +79,14 @@ void audio_hub( chanend c_adat_tx,
     int adat_tx_smux = SMUX_NONE;
     int32_t adat_tx_samples[ADAT_MAX_SAMPLES] = {0};
 
-    adat_tx_startup(c_adat_tx, i2s_set_sample_rate, adat_tx_samples);
+    // adat_tx_startup(c_adat_tx, i2s_set_sample_rate, adat_tx_samples);
 
     while(1) {
         select{
             case i_i2s.init(i2s_config_t &?i2s_config, tdm_config_t &?tdm_config):
-                adat_tx_shutdown(c_adat_tx);
+                // adat_tx_shutdown(c_adat_tx);
 
-                i2s_config.mclk_bclk_ratio = (master_clock_frequency / (i2s_set_sample_rate*2*I2S_DATA_BITS));
+                // i2s_config.mclk_bclk_ratio = (master_clock_frequency / (i2s_set_sample_rate*2*I2S_DATA_BITS));
                 printstr("i2s init: "); printintln(i2s_set_sample_rate);
 
                 mute = (i2s_set_sample_rate * FORMAT_CHANGE_MUTE_MS) / 1000;
@@ -95,7 +94,7 @@ void audio_hub( chanend c_adat_tx,
 
                 reset_fifo();
 
-                adat_tx_smux = adat_tx_startup(c_adat_tx, i2s_set_sample_rate, adat_tx_samples);
+                // adat_tx_smux = adat_tx_startup(c_adat_tx, i2s_set_sample_rate, adat_tx_samples);
             break;
 
             case i_i2s.restart_check() -> i2s_restart_t restart:
@@ -107,13 +106,6 @@ void audio_hub( chanend c_adat_tx,
                 if(measured_i2s_sample_rate_change){
                     printstr("measured_i2s_sample_rate_change: "); printintln(current_i2s_rate);
                     measured_i2s_sample_rate_change = 0;
-                    restart = I2S_RESTART;
-                    break;
-                }
-                // This can be removed in the application
-                if(i2s_master_sample_rate_change){
-                    printstrln("i2s_master_sample_rate_change");
-                    i2s_master_sample_rate_change = 0;
                     restart = I2S_RESTART;
                     break;
                 }
@@ -144,7 +136,6 @@ void audio_hub( chanend c_adat_tx,
                     for(int ch = 0; ch < num_out; ch++){
                         samples[ch] = asrc_out[ch];
                     }
-                    samples[4] = asrc_out[0]; // TODO remove me. Just here for a signal copy.
                 }
 
                 uint32_t measured_i2s_rate = calc_sample_rate(&last_timestamp, latest_timestamp, current_i2s_rate, &i2s_sample_period_count);
