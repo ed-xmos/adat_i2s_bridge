@@ -28,7 +28,7 @@ unsigned receive_adat_samples(chanend_t c_asrc_input, asrc_in_out_t *asrc_io, un
 
 void adat_rx_demux(chanend c_adat_rx, chanend c_adat_rx_demux, chanend c_smux_change_adat_rx);
 
-void adat_tx_setup_task(chanend c_adat_tx, clock mck_blk, in port p_mclk, buffered out port:32 p_adat_out);
+void adat_tx_hw_setup(chanend c_adat_tx, clock mck_blk, in port p_mclk, buffered out port:32 p_adat_out);
 
 void adat_rx_task(chanend c_adat_rx, buffered in port:32 p_adat_in);
 

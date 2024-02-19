@@ -60,10 +60,6 @@ void audio_hub( chanend c_adat_tx,
     tmr :> rate_measurement_trigger;
     rate_measurement_trigger += rate_measurement_period;
 
-    // I2S master state. This controls setting up of the I2S master (the CODEC)
-    // This can be removed when connected to another I2S master
-    uint32_t i2s_set_sample_rate = DEFAULT_FREQ;
-
     // I2S sample rate measurement state
     uint32_t i2s_sample_period_count = 0;
     uint8_t measured_i2s_sample_rate_change = 1;    // Force new SR as measured
@@ -102,8 +98,6 @@ void audio_hub( chanend c_adat_tx,
                 // Inform the I2S slave whether it should restart or exit
                 i2s_sample_period_count++;
                 if(measured_i2s_sample_rate_change){
-                    printstr("measured_i2s_sample_rate_change: "); printintln(current_i2s_rate);
-                    unsafe{printintln(*new_output_rate_ptr);}
                     measured_i2s_sample_rate_change = 0;
                     restart = I2S_RESTART;
                     break;
@@ -167,7 +161,7 @@ int main(void) {
             }
         }
         on tile[1]: {
-            adat_tx_setup_task(c_adat_tx, mck_blk, p_mclk, p_adat_out);
+            adat_tx_hw_setup(c_adat_tx, mck_blk, p_mclk, p_adat_out);
 
             par {
                 [[distribute]]
