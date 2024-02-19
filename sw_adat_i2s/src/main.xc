@@ -63,7 +63,7 @@ void audio_hub( chanend c_adat_tx,
     // I2S sample rate measurement state
     uint32_t i2s_sample_period_count = 0;
     uint8_t measured_i2s_sample_rate_change = 1;    // Force new SR as measured
-    uint32_t current_i2s_rate = 0;
+    uint32_t current_i2s_rate = 0;                  // Set to invalid until we measure it properly
 
     // General control
     uint32_t mute = 0;
@@ -74,21 +74,21 @@ void audio_hub( chanend c_adat_tx,
     int adat_tx_smux = SMUX_NONE;
     int32_t adat_tx_samples[ADAT_MAX_SAMPLES] = {0};
 
-    // adat_tx_startup(c_adat_tx, i2s_set_sample_rate, adat_tx_samples);
+    adat_tx_startup(c_adat_tx, current_i2s_rate, adat_tx_samples);
 
     while(1) {
         select{
             case i_i2s.init(i2s_config_t &?i2s_config, tdm_config_t &?tdm_config):
                 printstr("i2s init: "); printintln(current_i2s_rate);
 
-                // adat_tx_shutdown(c_adat_tx);
+                adat_tx_shutdown(c_adat_tx);
                 
                 mute = (current_i2s_rate * FORMAT_CHANGE_MUTE_MS) / 1000;
                 i2s_config.mode = I2S_MODE_I2S;
 
                 reset_asrc_fifo();
 
-                // adat_tx_smux = adat_tx_startup(c_adat_tx, i2s_set_sample_rate, adat_tx_samples);
+                adat_tx_smux = adat_tx_startup(c_adat_tx, current_i2s_rate, adat_tx_samples);
             break;
 
             case i_i2s.restart_check() -> i2s_restart_t restart:

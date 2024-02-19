@@ -234,7 +234,10 @@ int adat_tx_startup(chanend c_adat_tx, unsigned sample_rate, int32_t *adat_tx_sa
     //                = 4 for FS = 176K4 or 192K0
 
     int adat_tx_smux = 1;
-    if(sample_rate % 48000 == 0){
+    if(sample_rate == 0){
+        adat_tx_smux = 4; // Set to lowest backpressure setting if invalid sample rate
+    }
+    else if(sample_rate % 48000 == 0){
         adat_tx_smux = sample_rate / 48000;
     } else {
         adat_tx_smux = sample_rate / 44100;
