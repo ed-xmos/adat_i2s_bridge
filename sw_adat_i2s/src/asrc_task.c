@@ -214,7 +214,7 @@ asynchronous_fifo_t *fifo = (asynchronous_fifo_t *)array;
 
 // Called from consumer side. Produces samples and returns channel count
 int pull_samples(int32_t *samples, int32_t consume_timestamp){
-    asynchronous_fifo_consume(fifo, samples, consume_timestamp);
+    asynchronous_fifo_consumer_get(fifo, samples, consume_timestamp);
 
     return asrc_channel_count;
 }
@@ -381,7 +381,7 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
             int ts = asrc_timestamp_interpolation(asrc_io.input_timestamp, sASRCCtrl[0], interpolation_ticks);
             // Only push to FIFO if we have samples (FIFO has a bug) otherwise hold last error value
             if(num_output_samples){
-                error = asynchronous_fifo_produce(fifo, &asrc_io.output_samples[0], num_output_samples, ts, xscope_used);
+                error = asynchronous_fifo_producer_put(fifo, &asrc_io.output_samples[0], num_output_samples, ts, xscope_used);
             }
 
             fs_ratio = (((int64_t)ideal_fs_ratio) << 32) + (error * (int64_t) ideal_fs_ratio);
@@ -392,13 +392,6 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
                 asrc_peak_processing_time = t1 - t0;
                 // printintln(asrc_peak_processing_time);
                 xassert(asrc_peak_processing_time <= asrc_process_time_limit);
-            }
-
-            // TODO Remove me. This is here to monitor PID loop convergence during dev
-            static int print_counter = 0;
-            if(++print_counter == 50000){
-                dprintf("depth: %lu\n", (fifo->write_ptr - fifo->read_ptr + fifo->max_fifo_depth) % fifo->max_fifo_depth);
-                print_counter = 0;
             }
         } // while !asrc_detect_format_change()
     } // while 1
