@@ -207,7 +207,7 @@ void adat_rx_task(chanend c_adat_rx, buffered in port:32 p_adat_in) {
 
 void adat_tx_hw_setup(chanend c_adat_tx, clock mck_blk, in port p_mclk, buffered out port:32 p_adat_out){
     set_clock_src(mck_blk, p_mclk);
-    set_clock_fall_delay(mck_blk, 7);   // XAI2 board, set to appropriate value for board.
+    set_clock_fall_delay(mck_blk, 7);
 
     set_port_clock(p_adat_out, mck_blk);
     start_clock(mck_blk);

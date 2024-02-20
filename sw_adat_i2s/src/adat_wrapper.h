@@ -55,7 +55,6 @@ static inline void send_adat_tx_samples(chanend c_adat_tx, const unsigned adat_t
 
         case 2:
             for(int i = 0; i < 8; i+= 2){
-                if(i + adat_smux_counter >= 8) printintln(i + adat_smux_counter);
                 adat_tx_muxed[i + adat_smux_counter] = adat_tx_samples[i];
             }
         break;

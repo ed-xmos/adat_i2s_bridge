@@ -371,6 +371,7 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
         while(1){
             // Wait for block of samples
             unsigned input_write_idx = (unsigned)chanend_in_byte(c_buff_idx);
+
             // Check for format changes - do before we process
             if(asrc_detect_format_change(input_frequency, output_frequency, &asrc_io)){
                 break;
@@ -392,6 +393,7 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
                 asrc_peak_processing_time = t1 - t0;
                 // printintln(asrc_peak_processing_time);
                 // xassert(asrc_peak_processing_time <= asrc_process_time_limit);
+                (void)asrc_peak_processing_time; // Remove compiler warning
             }
         } // while !asrc_detect_format_change()
     } // while 1
