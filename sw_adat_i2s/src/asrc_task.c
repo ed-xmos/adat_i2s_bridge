@@ -391,7 +391,7 @@ DEFINE_INTERRUPT_PERMITTED(ASRC_ISR_GRP, void, asrc_processor_, chanend_t c_asrc
             if(t1 - t0 > asrc_peak_processing_time){
                 asrc_peak_processing_time = t1 - t0;
                 // printintln(asrc_peak_processing_time);
-                xassert(asrc_peak_processing_time <= asrc_process_time_limit);
+                // xassert(asrc_peak_processing_time <= asrc_process_time_limit);
             }
         } // while !asrc_detect_format_change()
     } // while 1

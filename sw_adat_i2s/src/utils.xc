@@ -1,7 +1,7 @@
 #include <platform.h>
 #include <xs1.h>
 #include <stdint.h>
-#include <print.h>
+#include <stdio.h>
 
 #include "app_config.h"
 #include "adat_wrapper.h"
@@ -20,10 +20,22 @@ typedef struct button_state_t{
 const unsigned sr_list[] = {44100, 48000, 88200, 96000, 176400, 192000};
 const unsigned smux_list[] = {SMUX_NONE, SMUX_II, SMUX_IV};
 
+
+unsigned get_format_idx_from_sr(unsigned sr){
+    for(int i = 0; i < sizeof(sr_list) / sizeof(sr_list[0]); i++){
+        if(sr == sr_list[i]){
+            return i;
+        }
+    }
+    return 0;
+}
+
+static unsigned curr_sr_idx = 0;
+static unsigned curr_rx_sm_idx = 0;
+static unsigned curr_tx_sm_idx = 0;
+
 {unsigned, int} button_action(client interface i2c_master_if i_i2c, chanend c_smux_change_adat_rx, int idx){
-    static unsigned curr_sr_idx = 1; //48k default
-    static unsigned curr_rx_sm_idx = 0;
-    static unsigned curr_tx_sm_idx = 0;
+
 
     if(idx == 2){
         curr_sr_idx++;
@@ -33,6 +45,7 @@ const unsigned smux_list[] = {SMUX_NONE, SMUX_II, SMUX_IV};
         // Set new sample rate on CODEC (I2S master)
         unsigned master_clock_frequency = get_master_clock_from_samp_rate(sr_list[curr_sr_idx]);
         AudioHwConfig(i_i2c, sr_list[curr_sr_idx], master_clock_frequency, 0, 24, 24);
+        printf("Configured I2S master to: %u\n", sr_list[curr_sr_idx]);
     }
     if(idx == 1){
         curr_rx_sm_idx++;
@@ -88,7 +101,7 @@ void gpio(chanend c_smux_change_adat_rx, in port p_buttons, out port p_leds, cli
 
     // Reverse lookup DEFAULT_FREQ
     for(int i = 0; i < sizeof(sr_list) / sizeof(sr_list[0]); i++){
-        if(sr_list[i] == DEFAULT_FREQ) sr_i2s_idx = i;
+        if(sr_list[i] == DEFAULT_FREQ) curr_sr_idx = i;
     }
 
     while (1) {

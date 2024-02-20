@@ -2,6 +2,7 @@
 #define _ADAT_H_
 
 #include <stdint.h>
+#include <print.h>
 #include <platform.h>
 #include "app_config.h"
 #include "asrc_task.h"
