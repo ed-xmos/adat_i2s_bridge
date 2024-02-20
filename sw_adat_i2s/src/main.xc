@@ -61,9 +61,9 @@ void audio_hub( chanend c_adat_tx,
     rate_measurement_trigger += rate_measurement_period;
 
     // I2S sample rate measurement state
-    uint32_t i2s_sample_period_count = 0;
-    uint8_t measured_i2s_sample_rate_change = 1;    // Force new SR as measured
     uint32_t current_i2s_rate = 0;                  // Set to invalid until we measure it properly
+    const uint8_t i2s_rate_measurement_delay = 10;  // How many I2S loops after restart before we measure rate
+    uint8_t i2s_rate_measurement_counter = i2s_rate_measurement_delay;
 
     // General control
     uint32_t mute = 0;
@@ -79,7 +79,7 @@ void audio_hub( chanend c_adat_tx,
     while(1) {
         select{
             case i_i2s.init(i2s_config_t &?i2s_config, tdm_config_t &?tdm_config):
-                printstr("i2s init detected: "); printintln(current_i2s_rate);
+                printstr("i2s rate change detected: "); printintln(current_i2s_rate);
 
                 adat_tx_shutdown(c_adat_tx);
                 
@@ -89,26 +89,30 @@ void audio_hub( chanend c_adat_tx,
                 reset_asrc_fifo();
 
                 adat_tx_smux = adat_tx_startup(c_adat_tx, current_i2s_rate, adat_tx_samples);
+                i2s_rate_measurement_counter = i2s_rate_measurement_delay;
             break;
 
             case i_i2s.restart_check() -> i2s_restart_t restart:
                 // This if the first callback so the least jitter measurement of timestamp should be here
                 tmr :> latest_timestamp;
 
-                // Inform the I2S slave whether it should restart or exit
-                i2s_sample_period_count++;
-                if(measured_i2s_sample_rate_change){
-                    measured_i2s_sample_rate_change = 0;
+                uint32_t measured_i2s_rate = sample_rate_from_ts_diff(last_timestamp, latest_timestamp, i2s_rate_measurement_counter);
+                // printintln(i2s_rate_measurement_counter);
+                
+                if((current_i2s_rate != measured_i2s_rate) && (i2s_rate_measurement_counter == 0)){
+                    current_i2s_rate = measured_i2s_rate;
+                    unsafe{*new_output_rate_ptr = current_i2s_rate;} // Inform ASRC
                     restart = I2S_RESTART;
                     break;
                 }
+
                 restart = I2S_NO_RESTART;
             break;
 
             case i_i2s.receive(size_t num_in, int32_t samples[num_in]):
-                if(mute == 0){
+                if(mute == 0 && current_i2s_rate != 0){
                     memcpy(adat_tx_samples, samples, num_in * sizeof(int32_t));
-                    send_adat_tx_samples(c_adat_tx, (unsigned *)adat_tx_samples, adat_tx_smux);
+                    // send_adat_tx_samples(c_adat_tx, (unsigned *)adat_tx_samples, adat_tx_smux);
                 }
             break;
 
@@ -129,14 +133,6 @@ void audio_hub( chanend c_adat_tx,
                     for(int ch = 0; ch < num_out; ch++){
                         samples[ch] = asrc_out[ch];
                     }
-                }
-
-                uint32_t measured_i2s_rate = calc_sample_rate(&last_timestamp, latest_timestamp, current_i2s_rate, &i2s_sample_period_count);
-                
-                if((measured_i2s_rate != 0) && (current_i2s_rate != measured_i2s_rate)){
-                    measured_i2s_sample_rate_change = 1;
-                    current_i2s_rate = measured_i2s_rate;
-                    unsafe{*new_output_rate_ptr = current_i2s_rate;}
                 }
             break;
         } // select
