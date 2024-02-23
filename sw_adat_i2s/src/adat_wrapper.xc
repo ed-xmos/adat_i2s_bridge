@@ -11,7 +11,7 @@
 #include "adat_tx.h"
 
 // Called from a different tile hence channel usage. This overrides the weak function in asrc_task.c
-unsigned receive_asrc_input_samples(chanend c_adat_rx_demux, asrc_in_out_t &asrc_io, unsigned &asrc_channel_count, unsigned &new_input_rate){
+unsigned receive_asrc_input_samples(chanend c_adat_rx_demux, asrc_in_out_t &asrc_io, unsigned &new_input_rate){
     static unsigned asrc_in_counter = 0;
     unsigned input_write_idx = asrc_io.input_write_idx;
 
@@ -29,8 +29,8 @@ unsigned receive_asrc_input_samples(chanend c_adat_rx_demux, asrc_in_out_t &asrc
     }
 
     // Pack into array properly LRLRLRLR or 123412341234 etc.
-    for(int i = 0; i < asrc_channel_count; i++){
-        int idx = i + asrc_channel_count * asrc_in_counter;
+    for(int i = 0; i < asrc_io.input_channel_count; i++){
+        int idx = i + asrc_io.input_channel_count * asrc_in_counter;
         asrc_io.input_samples[input_write_idx][idx] = adat_rx_samples[i];
     }
 

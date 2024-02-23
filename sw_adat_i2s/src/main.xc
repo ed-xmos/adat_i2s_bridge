@@ -43,12 +43,6 @@ on tile[1]: clock bclk =                                    XS1_CLKBLK_1;
 
 
 
-// Global to allow asrc_task to read it
-uint32_t new_output_rate = 0;                  // Set to invalid initially
-unsafe{
-    volatile uint32_t * unsafe new_output_rate_ptr = &new_output_rate;
-}
-
 [[distributable]]
 void audio_hub( chanend c_adat_tx,
                 server i2s_frame_callback_if i_i2s) {
@@ -118,7 +112,7 @@ void audio_hub( chanend c_adat_tx,
                 }
 
                 int32_t asrc_out[8]; // TODO make max ASRC channels
-                int asrc_channel_count = pull_samples(asrc_out, latest_timestamp);
+                int asrc_channel_count = pull_samples(asrc_out, current_i2s_rate, latest_timestamp);
                 if(mute > 0){
                     for(int ch = 0; ch < num_out; ch++){
                         samples[ch] = 0;
@@ -136,7 +130,6 @@ void audio_hub( chanend c_adat_tx,
                 if((measured_i2s_rate != 0) && (current_i2s_rate != measured_i2s_rate)){
                     measured_i2s_sample_rate_change = 1;
                     current_i2s_rate = measured_i2s_rate;
-                    unsafe{*new_output_rate_ptr = current_i2s_rate;}
                 }
             break;
         } // select
